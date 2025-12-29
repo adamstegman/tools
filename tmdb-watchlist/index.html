@@ -1,0 +1,1383 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Movie & TV Watchlist (TMDB)</title>
+    <meta
+      name="description"
+      content="Search The Movie Database (TMDB) for movies and TV shows and save a personal watchlist in your browser for later."
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: Canvas;
+        --fg: CanvasText;
+        --muted: color-mix(in oklab, CanvasText 65%, Canvas 35%);
+        --card: color-mix(in oklab, Canvas 92%, CanvasText 8%);
+        --border: color-mix(in oklab, CanvasText 18%, Canvas 82%);
+        --accent: Highlight;
+        --accentText: HighlightText;
+        --danger: #b00020;
+        --ok: #0b6b3a;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        --radius: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
+          Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      }
+
+      a {
+        color: inherit;
+        text-decoration-color: color-mix(in oklab, currentColor 45%, transparent);
+        text-underline-offset: 0.15em;
+      }
+      a:hover {
+        text-decoration-color: currentColor;
+      }
+
+      header,
+      main,
+      footer {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 18px;
+      }
+
+      header {
+        padding-top: 22px;
+        padding-bottom: 8px;
+      }
+
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 6px 0;
+        letter-spacing: -0.01em;
+      }
+
+      .lede {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      @media (min-width: 920px) {
+        .grid {
+          grid-template-columns: 1.3fr 1fr;
+          align-items: start;
+        }
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 14px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px 0;
+        font-size: 1.05rem;
+      }
+
+      form {
+        display: grid;
+        gap: 10px;
+      }
+
+      .row {
+        display: grid;
+        gap: 10px;
+      }
+
+      @media (min-width: 620px) {
+        .row.cols-2 {
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+        .row.cols-3 {
+          grid-template-columns: 1.4fr 1fr 1fr;
+          gap: 12px;
+        }
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 650;
+      }
+
+      label span.hint {
+        font-weight: 500;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      input[type="text"],
+      input[type="search"],
+      input[type="password"],
+      select,
+      textarea {
+        width: 100%;
+        padding: 10px 11px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: Canvas;
+        color: CanvasText;
+      }
+
+      textarea {
+        min-height: 7em;
+        resize: vertical;
+      }
+
+      input[type="checkbox"] {
+        transform: translateY(1px);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: Canvas;
+        color: CanvasText;
+        border-radius: 999px;
+        padding: 9px 12px;
+        cursor: pointer;
+      }
+
+      button.primary {
+        border-color: color-mix(in oklab, var(--accent) 70%, var(--border));
+        background: var(--accent);
+        color: var(--accentText);
+        font-weight: 650;
+      }
+
+      button.danger {
+        border-color: color-mix(in oklab, var(--danger) 70%, var(--border));
+        color: var(--danger);
+        font-weight: 650;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .status {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .status strong {
+        color: var(--fg);
+      }
+
+      .status.ok {
+        color: color-mix(in oklab, var(--ok) 75%, var(--muted));
+      }
+      .status.bad {
+        color: color-mix(in oklab, var(--danger) 70%, var(--muted));
+      }
+
+      .results {
+        display: grid;
+        gap: 10px;
+      }
+
+      .item {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        gap: 12px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in oklab, Canvas 96%, CanvasText 4%);
+      }
+
+      .poster {
+        width: 72px;
+        height: 108px;
+        border-radius: 10px;
+        background: color-mix(in oklab, CanvasText 10%, Canvas 90%);
+        overflow: hidden;
+        border: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        color: color-mix(in oklab, CanvasText 45%, Canvas 55%);
+        font-size: 0.85rem;
+        text-align: center;
+      }
+
+      .poster img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .meta {
+        display: grid;
+        gap: 6px;
+        align-content: start;
+      }
+
+      .meta h3 {
+        margin: 0;
+        font-size: 1rem;
+        line-height: 1.25;
+      }
+
+      .submeta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        font-size: 0.82rem;
+        color: color-mix(in oklab, CanvasText 80%, Canvas 20%);
+        background: color-mix(in oklab, Canvas 92%, CanvasText 8%);
+      }
+
+      .overview {
+        margin: 0;
+        color: color-mix(in oklab, CanvasText 82%, Canvas 18%);
+        font-size: 0.94rem;
+      }
+
+      .small {
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+
+      .split {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      details summary {
+        cursor: pointer;
+        font-weight: 650;
+      }
+
+      footer {
+        padding-top: 10px;
+        padding-bottom: 24px;
+        color: var(--muted);
+      }
+
+      dialog {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 0;
+        max-width: min(760px, calc(100vw - 24px));
+        box-shadow: 0 12px 45px rgba(0, 0, 0, 0.22);
+        background: var(--card);
+        color: var(--fg);
+      }
+      dialog::backdrop {
+        background: rgba(0, 0, 0, 0.45);
+      }
+      .dialog-inner {
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .dialog-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+        padding: 12px 14px 14px;
+        border-top: 1px solid var(--border);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Movie &amp; TV Watchlist (TMDB)</h1>
+      <p class="lede">
+        Search for movies and TV shows, save them to a personal watchlist, and later pick something to
+        watch. Everything is stored locally in your browser.
+      </p>
+    </header>
+
+    <noscript>
+      <main class="card" style="max-width: 1100px; margin: 0 auto; padding: 18px">
+        <h2 style="margin: 0 0 6px 0">JavaScript required</h2>
+        <p class="lede" style="margin: 0">
+          This tool needs JavaScript to talk to TMDB and to save your watchlist in your browser.
+        </p>
+      </main>
+    </noscript>
+
+    <main class="grid" id="app">
+      <section class="card" aria-labelledby="search-title">
+        <h2 id="search-title">Search TMDB</h2>
+
+        <details style="margin-bottom: 10px">
+          <summary>How to use (and where to get a TMDB key)</summary>
+          <div class="small" style="margin-top: 8px">
+            <ol style="margin: 0; padding-left: 1.2em; display: grid; gap: 6px">
+              <li>
+                Get a TMDB API key from
+                <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer"
+                  >your TMDB API settings</a
+                >.
+              </li>
+              <li>Paste the key/token below (it’s stored only in this browser).</li>
+              <li>Search and click <strong>Save to watchlist</strong> on anything you want to keep.</li>
+              <li>Later, use <strong>Pick something</strong> to choose a random unwatched item.</li>
+            </ol>
+            <p style="margin: 10px 0 0 0">
+              Note: your key is effectively a password—avoid sharing screenshots that include it.
+            </p>
+          </div>
+        </details>
+
+        <form id="searchForm">
+          <div class="row cols-2">
+            <label>
+              TMDB API key / token
+              <span class="hint">Stored in this browser only. You can clear it anytime.</span>
+              <input
+                id="apiKey"
+                type="password"
+                inputmode="text"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Paste TMDB v3 API key (32 chars) or v4 access token"
+              />
+            </label>
+
+            <label>
+              Credential type
+              <span class="hint">Auto is usually correct.</span>
+              <select id="apiKeyKind">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="v3">v3 API key</option>
+                <option value="v4">v4 access token</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row cols-3">
+            <label>
+              Search query
+              <span class="hint">Title keywords, e.g. “alien”, “the bear”.</span>
+              <input id="query" type="search" required placeholder="Search for a movie or TV show" />
+            </label>
+
+            <label>
+              Type
+              <span class="hint">Filter results.</span>
+              <select id="mediaFilter">
+                <option value="all" selected>Movies + TV</option>
+                <option value="movie">Movies only</option>
+                <option value="tv">TV only</option>
+              </select>
+            </label>
+
+            <label>
+              Language
+              <span class="hint">TMDB result language.</span>
+              <select id="language">
+                <option value="en-US" selected>English (US)</option>
+                <option value="en-GB">English (UK)</option>
+                <option value="es-ES">Español</option>
+                <option value="fr-FR">Français</option>
+                <option value="de-DE">Deutsch</option>
+                <option value="it-IT">Italiano</option>
+                <option value="pt-BR">Português (BR)</option>
+                <option value="ja-JP">日本語</option>
+                <option value="ko-KR">한국어</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row cols-2">
+            <label>
+              Include adult results
+              <span class="hint">Off by default.</span>
+              <span class="small">
+                <input id="includeAdult" type="checkbox" />
+                Include adult
+              </span>
+            </label>
+
+            <label>
+              Region (optional)
+              <span class="hint">Affects some results (e.g. US, GB). Leave blank for default.</span>
+              <input id="region" type="text" inputmode="text" autocomplete="off" placeholder="e.g. US" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="primary" id="searchBtn" type="submit">Search</button>
+            <button id="clearSearchBtn" type="button">Clear results</button>
+            <button id="testKeyBtn" type="button">Test credential</button>
+            <span class="status" id="searchStatus" role="status" aria-live="polite"></span>
+          </div>
+
+          <details>
+            <summary>Privacy &amp; data</summary>
+            <p class="small">
+              Your watchlist and credential are stored in <code>localStorage</code> in this browser.
+              Requests are sent directly from your browser to TMDB. Nothing is uploaded anywhere else.
+            </p>
+            <div class="actions">
+              <button id="forgetKeyBtn" type="button" class="danger">Forget stored credential</button>
+              <button id="clearListBtn" type="button" class="danger">Clear watchlist</button>
+            </div>
+          </details>
+        </form>
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 14px 0" />
+
+        <div class="split">
+          <p class="status" id="resultsSummary" aria-live="polite"></p>
+          <div class="actions" aria-label="Results pagination">
+            <button id="prevPageBtn" type="button" disabled>Prev</button>
+            <button id="nextPageBtn" type="button" disabled>Next</button>
+          </div>
+        </div>
+
+        <div class="results" id="results" aria-live="polite" aria-busy="false"></div>
+      </section>
+
+      <section class="card" aria-labelledby="list-title">
+        <div class="split">
+          <h2 id="list-title" style="margin: 0">Your watchlist</h2>
+          <p class="status" id="listSummary" aria-live="polite" style="margin: 0"></p>
+        </div>
+
+        <div class="row cols-3" style="margin-top: 10px">
+          <label>
+            Filter
+            <span class="hint">Narrow down your list.</span>
+            <select id="listFilter">
+              <option value="unwatched" selected>Unwatched</option>
+              <option value="all">All</option>
+              <option value="watched">Watched</option>
+              <option value="movie">Movies</option>
+              <option value="tv">TV</option>
+            </select>
+          </label>
+
+          <label>
+            Sort
+            <span class="hint">How to order the list.</span>
+            <select id="listSort">
+              <option value="added-desc" selected>Recently added</option>
+              <option value="added-asc">Oldest added</option>
+              <option value="title-asc">Title (A→Z)</option>
+              <option value="title-desc">Title (Z→A)</option>
+              <option value="rating-desc">Rating (high→low)</option>
+              <option value="rating-asc">Rating (low→high)</option>
+            </select>
+          </label>
+
+          <label>
+            Search within list
+            <span class="hint">Matches title and notes.</span>
+            <input id="listQuery" type="search" placeholder="e.g. sci-fi, bear" />
+          </label>
+        </div>
+
+        <div class="actions" style="margin-top: 10px">
+          <button class="primary" id="pickBtn" type="button">Pick something</button>
+          <button id="exportBtn" type="button">Export</button>
+          <button id="importBtn" type="button">Import</button>
+          <span class="status" id="listStatus" role="status" aria-live="polite"></span>
+        </div>
+
+        <details style="margin-top: 10px">
+          <summary>Import / export</summary>
+          <p class="small" style="margin-top: 8px">
+            Export saves a JSON file. Import accepts that JSON. This is handy for backups or moving to a
+            new browser/device.
+          </p>
+          <div class="row cols-2">
+            <label>
+              Import from JSON
+              <span class="hint">Paste exported JSON here and click “Import JSON”.</span>
+              <textarea id="importText" placeholder='{"version":1,"items":[...]}'></textarea>
+            </label>
+            <div>
+              <label>
+                Or import a file
+                <span class="hint">Select a JSON file.</span>
+                <input id="importFile" type="file" accept="application/json" />
+              </label>
+              <div class="actions" style="margin-top: 10px">
+                <button id="importJsonBtn" type="button" class="primary">Import JSON</button>
+                <button id="downloadExportBtn" type="button">Download export</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 14px 0" />
+
+        <div class="results" id="watchlist"></div>
+      </section>
+
+      <dialog id="pickDialog" aria-labelledby="pickTitle">
+        <div class="dialog-inner">
+          <h2 id="pickTitle" style="margin: 0; font-size: 1.1rem">Your pick</h2>
+          <div id="pickBody"></div>
+          <p class="small" id="pickHint" style="margin: 0">
+            Tip: Click “Pick again” if you’re not feeling it.
+          </p>
+        </div>
+        <div class="dialog-actions">
+          <button id="pickAgainBtn" type="button">Pick again</button>
+          <button id="closePickBtn" type="button">Close</button>
+        </div>
+      </dialog>
+    </main>
+
+    <footer>
+      <p style="margin: 0">
+        Built as a single-file HTML tool. Data source: TMDB. This product uses the TMDB API but is not
+        endorsed or certified by TMDB.
+      </p>
+    </footer>
+
+    <script type="module">
+      const STORAGE = {
+        apiKey: "tmdb_tool_api_key_v1",
+        apiKeyKind: "tmdb_tool_api_key_kind_v1",
+        watchlist: "tmdb_tool_watchlist_v1",
+      };
+
+      /** @typedef {"movie"|"tv"} MediaType */
+      /** @typedef {{ id:number, media_type:MediaType, title:string, year:string, poster_path:string|null, overview:string, vote_average:number|null, vote_count:number|null, addedAt:number, watched:boolean, watchedAt:number|null, notes:string }} SavedItem */
+
+      const el = {
+        apiKey: /** @type {HTMLInputElement} */ (document.getElementById("apiKey")),
+        apiKeyKind: /** @type {HTMLSelectElement} */ (document.getElementById("apiKeyKind")),
+        testKeyBtn: /** @type {HTMLButtonElement} */ (document.getElementById("testKeyBtn")),
+        forgetKeyBtn: /** @type {HTMLButtonElement} */ (document.getElementById("forgetKeyBtn")),
+        clearListBtn: /** @type {HTMLButtonElement} */ (document.getElementById("clearListBtn")),
+        searchForm: /** @type {HTMLFormElement} */ (document.getElementById("searchForm")),
+        query: /** @type {HTMLInputElement} */ (document.getElementById("query")),
+        mediaFilter: /** @type {HTMLSelectElement} */ (document.getElementById("mediaFilter")),
+        language: /** @type {HTMLSelectElement} */ (document.getElementById("language")),
+        region: /** @type {HTMLInputElement} */ (document.getElementById("region")),
+        includeAdult: /** @type {HTMLInputElement} */ (document.getElementById("includeAdult")),
+        searchBtn: /** @type {HTMLButtonElement} */ (document.getElementById("searchBtn")),
+        clearSearchBtn: /** @type {HTMLButtonElement} */ (document.getElementById("clearSearchBtn")),
+        searchStatus: /** @type {HTMLSpanElement} */ (document.getElementById("searchStatus")),
+        resultsSummary: /** @type {HTMLParagraphElement} */ (document.getElementById("resultsSummary")),
+        results: /** @type {HTMLDivElement} */ (document.getElementById("results")),
+        prevPageBtn: /** @type {HTMLButtonElement} */ (document.getElementById("prevPageBtn")),
+        nextPageBtn: /** @type {HTMLButtonElement} */ (document.getElementById("nextPageBtn")),
+        listFilter: /** @type {HTMLSelectElement} */ (document.getElementById("listFilter")),
+        listSort: /** @type {HTMLSelectElement} */ (document.getElementById("listSort")),
+        listQuery: /** @type {HTMLInputElement} */ (document.getElementById("listQuery")),
+        watchlist: /** @type {HTMLDivElement} */ (document.getElementById("watchlist")),
+        listSummary: /** @type {HTMLParagraphElement} */ (document.getElementById("listSummary")),
+        listStatus: /** @type {HTMLSpanElement} */ (document.getElementById("listStatus")),
+        pickBtn: /** @type {HTMLButtonElement} */ (document.getElementById("pickBtn")),
+        pickDialog: /** @type {HTMLDialogElement} */ (document.getElementById("pickDialog")),
+        pickBody: /** @type {HTMLDivElement} */ (document.getElementById("pickBody")),
+        pickAgainBtn: /** @type {HTMLButtonElement} */ (document.getElementById("pickAgainBtn")),
+        closePickBtn: /** @type {HTMLButtonElement} */ (document.getElementById("closePickBtn")),
+        exportBtn: /** @type {HTMLButtonElement} */ (document.getElementById("exportBtn")),
+        importBtn: /** @type {HTMLButtonElement} */ (document.getElementById("importBtn")),
+        importText: /** @type {HTMLTextAreaElement} */ (document.getElementById("importText")),
+        importFile: /** @type {HTMLInputElement} */ (document.getElementById("importFile")),
+        importJsonBtn: /** @type {HTMLButtonElement} */ (document.getElementById("importJsonBtn")),
+        downloadExportBtn: /** @type {HTMLButtonElement} */ (document.getElementById("downloadExportBtn")),
+      };
+
+      const state = {
+        lastQuery: "",
+        lastPage: 1,
+        lastTotalPages: 1,
+        lastTotalResults: 0,
+        lastMediaFilter: /** @type {"all"|"movie"|"tv"} */ ("all"),
+        currentAbort: /** @type {AbortController|null} */ (null),
+      };
+
+      function safeTrim(s) {
+        return (s ?? "").toString().trim();
+      }
+
+      function guessKeyKind(value) {
+        const v = safeTrim(value);
+        if (!v) return "auto";
+        // TMDB v3 API key is 32 chars hex-ish, but don't be too strict.
+        if (/^[a-fA-F0-9]{32}$/.test(v)) return "v3";
+        // v4 tokens are long JWT-ish strings.
+        if (v.split(".").length >= 2 || v.length > 60) return "v4";
+        return "v3";
+      }
+
+      function loadApiCredential() {
+        const saved = safeTrim(localStorage.getItem(STORAGE.apiKey));
+        const kind = safeTrim(localStorage.getItem(STORAGE.apiKeyKind)) || "auto";
+        if (saved) el.apiKey.value = saved;
+        if (kind) el.apiKeyKind.value = kind;
+      }
+
+      function saveApiCredential() {
+        const value = safeTrim(el.apiKey.value);
+        const kind = el.apiKeyKind.value || "auto";
+        if (value) localStorage.setItem(STORAGE.apiKey, value);
+        else localStorage.removeItem(STORAGE.apiKey);
+        localStorage.setItem(STORAGE.apiKeyKind, kind);
+      }
+
+      function forgetApiCredential() {
+        localStorage.removeItem(STORAGE.apiKey);
+        localStorage.removeItem(STORAGE.apiKeyKind);
+        el.apiKey.value = "";
+        el.apiKeyKind.value = "auto";
+      }
+
+      /** @returns {{ kind: "v3"|"v4", value: string } | null} */
+      function getCredential() {
+        const value = safeTrim(el.apiKey.value);
+        if (!value) return null;
+        const kind =
+          el.apiKeyKind.value === "auto" ? guessKeyKind(value) : /** @type {"v3"|"v4"} */ (el.apiKeyKind.value);
+        return { kind, value };
+      }
+
+      function setStatus(target, text, kind) {
+        target.textContent = text;
+        target.classList.remove("ok", "bad");
+        if (kind === "ok") target.classList.add("ok");
+        if (kind === "bad") target.classList.add("bad");
+      }
+
+      function tmdbImageUrl(path, size = "w342") {
+        if (!path) return null;
+        return `https://image.tmdb.org/t/p/${size}${path}`;
+      }
+
+      function tmdbTitleFromResult(r) {
+        const title = safeTrim(r?.title) || safeTrim(r?.name) || "Untitled";
+        const date = safeTrim(r?.release_date) || safeTrim(r?.first_air_date) || "";
+        const year = date ? date.slice(0, 4) : "";
+        return { title, year };
+      }
+
+      function tmdbUrl(mediaType, id) {
+        if (mediaType === "movie") return `https://www.themoviedb.org/movie/${id}`;
+        return `https://www.themoviedb.org/tv/${id}`;
+      }
+
+      function keyForItem(mediaType, id) {
+        return `${mediaType}:${id}`;
+      }
+
+      /** @returns {SavedItem[]} */
+      function loadWatchlist() {
+        try {
+          const raw = localStorage.getItem(STORAGE.watchlist);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return parsed;
+          if (parsed && Array.isArray(parsed.items)) return parsed.items;
+          return [];
+        } catch {
+          return [];
+        }
+      }
+
+      /** @param {SavedItem[]} items */
+      function saveWatchlist(items) {
+        localStorage.setItem(STORAGE.watchlist, JSON.stringify({ version: 1, items }));
+      }
+
+      function clearWatchlist() {
+        localStorage.removeItem(STORAGE.watchlist);
+      }
+
+      /** @returns {Map<string, SavedItem>} */
+      function watchlistMap() {
+        const map = new Map();
+        for (const item of loadWatchlist()) map.set(keyForItem(item.media_type, item.id), item);
+        return map;
+      }
+
+      /** @param {SavedItem} item */
+      function upsertWatchlistItem(item) {
+        const items = loadWatchlist();
+        const k = keyForItem(item.media_type, item.id);
+        const idx = items.findIndex((x) => keyForItem(x.media_type, x.id) === k);
+        if (idx >= 0) items[idx] = item;
+        else items.push(item);
+        saveWatchlist(items);
+      }
+
+      /** @param {MediaType} mediaType @param {number} id */
+      function removeFromWatchlist(mediaType, id) {
+        const k = keyForItem(mediaType, id);
+        const items = loadWatchlist().filter((x) => keyForItem(x.media_type, x.id) !== k);
+        saveWatchlist(items);
+      }
+
+      function normalizeSavedItemFromResult(r) {
+        const media_type = /** @type {MediaType} */ (r.media_type);
+        const { title, year } = tmdbTitleFromResult(r);
+        return /** @type {SavedItem} */ ({
+          id: Number(r.id),
+          media_type,
+          title,
+          year,
+          poster_path: r.poster_path ?? null,
+          overview: safeTrim(r.overview),
+          vote_average: typeof r.vote_average === "number" ? r.vote_average : null,
+          vote_count: typeof r.vote_count === "number" ? r.vote_count : null,
+          addedAt: Date.now(),
+          watched: false,
+          watchedAt: null,
+          notes: "",
+        });
+      }
+
+      function formatRating(item) {
+        if (typeof item.vote_average === "number") {
+          const base = `${item.vote_average.toFixed(1)} / 10`;
+          if (typeof item.vote_count === "number" && item.vote_count > 0) return `${base} (${item.vote_count} votes)`;
+          return base;
+        }
+        return "No rating";
+      }
+
+      function escapeText(s) {
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function itemPosterHtml(poster_path, alt) {
+        const url = tmdbImageUrl(poster_path, "w185");
+        if (!url) return `<div class="poster" aria-label="No poster">No poster</div>`;
+        return `<div class="poster"><img src="${escapeText(url)}" alt="${escapeText(alt)}" loading="lazy" /></div>`;
+      }
+
+      function renderResultItem(r, savedMap) {
+        const mediaType = /** @type {MediaType} */ (r.media_type);
+        const { title, year } = tmdbTitleFromResult(r);
+        const id = Number(r.id);
+        const key = keyForItem(mediaType, id);
+        const already = savedMap.get(key);
+        const overview = safeTrim(r.overview) || "";
+        const rating =
+          typeof r.vote_average === "number" ? `${r.vote_average.toFixed(1)} / 10` : "No rating";
+        const link = tmdbUrl(mediaType, id);
+
+        return `
+          <article class="item">
+            ${itemPosterHtml(r.poster_path ?? null, `${title} poster`)}
+            <div class="meta">
+              <h3>
+                <a href="${escapeText(link)}" target="_blank" rel="noreferrer">${escapeText(title)}</a>
+              </h3>
+              <div class="submeta">
+                <span class="pill">${mediaType === "movie" ? "Movie" : "TV"}</span>
+                ${year ? `<span>${escapeText(year)}</span>` : ""}
+                <span>${escapeText(rating)}</span>
+              </div>
+              ${overview ? `<p class="overview">${escapeText(overview)}</p>` : `<p class="overview small">No overview.</p>`}
+              <div class="actions">
+                <button type="button" data-action="save" data-media="${mediaType}" data-id="${id}" ${
+                  already ? "disabled" : ""
+                }>${already ? "Saved" : "Save to watchlist"}</button>
+              </div>
+            </div>
+          </article>
+        `;
+      }
+
+      function renderSavedItem(item) {
+        const link = tmdbUrl(item.media_type, item.id);
+        const alt = `${item.title} poster`;
+        const watchedLabel = item.watched ? "Watched" : "Unwatched";
+
+        return `
+          <article class="item" data-key="${escapeText(keyForItem(item.media_type, item.id))}">
+            ${itemPosterHtml(item.poster_path, alt)}
+            <div class="meta">
+              <h3>
+                <a href="${escapeText(link)}" target="_blank" rel="noreferrer">${escapeText(item.title)}</a>
+              </h3>
+              <div class="submeta">
+                <span class="pill">${item.media_type === "movie" ? "Movie" : "TV"}</span>
+                ${item.year ? `<span>${escapeText(item.year)}</span>` : ""}
+                <span>${escapeText(formatRating(item))}</span>
+                <span class="pill" aria-label="Watch status">${escapeText(watchedLabel)}</span>
+              </div>
+              ${
+                item.overview
+                  ? `<p class="overview">${escapeText(item.overview)}</p>`
+                  : `<p class="overview small">No overview.</p>`
+              }
+              <label class="small" style="display: grid; gap: 6px; margin-top: 4px">
+                Notes
+                <input
+                  type="text"
+                  inputmode="text"
+                  autocomplete="off"
+                  placeholder="Add a note (e.g. “watch with Alex”, “S1 first”)"
+                  data-action="note"
+                  data-media="${escapeText(item.media_type)}"
+                  data-id="${item.id}"
+                  value="${escapeText(item.notes || "")}"
+                />
+              </label>
+              <div class="actions" style="margin-top: 6px">
+                <button type="button" data-action="toggleWatched" data-media="${escapeText(item.media_type)}" data-id="${
+                  item.id
+                }">${item.watched ? "Mark unwatched" : "Mark watched"}</button>
+                <button type="button" data-action="remove" data-media="${escapeText(item.media_type)}" data-id="${
+                  item.id
+                }" class="danger">Remove</button>
+              </div>
+            </div>
+          </article>
+        `;
+      }
+
+      function applyListFilterSortQuery(items) {
+        const filter = el.listFilter.value;
+        const q = safeTrim(el.listQuery.value).toLowerCase();
+
+        let out = items.slice();
+        if (filter === "unwatched") out = out.filter((x) => !x.watched);
+        else if (filter === "watched") out = out.filter((x) => x.watched);
+        else if (filter === "movie") out = out.filter((x) => x.media_type === "movie");
+        else if (filter === "tv") out = out.filter((x) => x.media_type === "tv");
+
+        if (q) {
+          out = out.filter((x) => {
+            const hay = `${x.title} ${x.notes ?? ""}`.toLowerCase();
+            return hay.includes(q);
+          });
+        }
+
+        const sort = el.listSort.value;
+        const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+        out.sort((a, b) => {
+          if (sort === "added-asc") return a.addedAt - b.addedAt;
+          if (sort === "added-desc") return b.addedAt - a.addedAt;
+          if (sort === "title-asc") return collator.compare(a.title, b.title);
+          if (sort === "title-desc") return collator.compare(b.title, a.title);
+          if (sort === "rating-asc") return (a.vote_average ?? -1) - (b.vote_average ?? -1);
+          if (sort === "rating-desc") return (b.vote_average ?? -1) - (a.vote_average ?? -1);
+          return 0;
+        });
+        return out;
+      }
+
+      function renderWatchlist() {
+        const items = loadWatchlist();
+        const filtered = applyListFilterSortQuery(items);
+        el.watchlist.innerHTML = filtered.length ? filtered.map(renderSavedItem).join("") : `<p class="small">No items yet. Save something from search results.</p>`;
+
+        const watchedCount = items.filter((x) => x.watched).length;
+        const unwatchedCount = items.length - watchedCount;
+        el.listSummary.textContent = items.length
+          ? `${items.length} total • ${unwatchedCount} unwatched • ${watchedCount} watched`
+          : "Empty";
+      }
+
+      function setResultsBusy(busy) {
+        el.results.setAttribute("aria-busy", busy ? "true" : "false");
+        el.searchBtn.disabled = busy;
+        el.prevPageBtn.disabled = busy || state.lastPage <= 1;
+        el.nextPageBtn.disabled = busy || state.lastPage >= state.lastTotalPages;
+        el.testKeyBtn.disabled = busy;
+      }
+
+      async function tmdbFetch(path, params) {
+        const cred = getCredential();
+        if (!cred) throw new Error("Missing TMDB credential. Paste your API key/token first.");
+        const url = new URL(`https://api.themoviedb.org/3${path}`);
+
+        const headers = new Headers();
+        headers.set("Accept", "application/json");
+
+        if (cred.kind === "v3") {
+          url.searchParams.set("api_key", cred.value);
+        } else {
+          headers.set("Authorization", `Bearer ${cred.value}`);
+        }
+
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            if (v === undefined || v === null) continue;
+            const s = String(v);
+            if (!s) continue;
+            url.searchParams.set(k, s);
+          }
+        }
+
+        const controller = new AbortController();
+        // Cancel any in-flight request if we start a new one.
+        if (state.currentAbort) state.currentAbort.abort();
+        state.currentAbort = controller;
+
+        const res = await fetch(url.toString(), { headers, signal: controller.signal });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const body = await res.json();
+            detail = safeTrim(body?.status_message) || safeTrim(body?.message) || "";
+          } catch {
+            // ignore
+          }
+          throw new Error(`TMDB request failed (${res.status}). ${detail}`.trim());
+        }
+        return await res.json();
+      }
+
+      async function testCredential() {
+        saveApiCredential();
+        setStatus(el.searchStatus, "Testing credential…", null);
+        try {
+          const data = await tmdbFetch("/configuration", {});
+          const base = safeTrim(data?.images?.secure_base_url) || "TMDB";
+          setStatus(el.searchStatus, `OK. Connected (${base}).`, "ok");
+        } catch (e) {
+          setStatus(el.searchStatus, e instanceof Error ? e.message : "Credential test failed.", "bad");
+        } finally {
+          state.currentAbort = null;
+        }
+      }
+
+      function clearResults() {
+        state.lastQuery = "";
+        state.lastPage = 1;
+        state.lastTotalPages = 1;
+        state.lastTotalResults = 0;
+        el.results.innerHTML = "";
+        el.resultsSummary.textContent = "";
+        el.prevPageBtn.disabled = true;
+        el.nextPageBtn.disabled = true;
+        setStatus(el.searchStatus, "", null);
+      }
+
+      async function runSearch(query, page) {
+        saveApiCredential();
+        const cred = getCredential();
+        if (!cred) {
+          setStatus(el.searchStatus, "Paste your TMDB credential first.", "bad");
+          return;
+        }
+
+        const q = safeTrim(query);
+        if (!q) return;
+
+        const mediaFilter = el.mediaFilter.value;
+        const language = el.language.value;
+        const includeAdult = el.includeAdult.checked ? "true" : "false";
+        const region = safeTrim(el.region.value).toUpperCase();
+
+        setResultsBusy(true);
+        setStatus(el.searchStatus, "Searching…", null);
+        el.resultsSummary.textContent = "";
+        el.results.innerHTML = "";
+
+        try {
+          const data = await tmdbFetch("/search/multi", {
+            query: q,
+            page,
+            include_adult: includeAdult,
+            language,
+            region: region || undefined,
+          });
+
+          const rawResults = Array.isArray(data?.results) ? data.results : [];
+          const results = rawResults
+            .filter((r) => r && (r.media_type === "movie" || r.media_type === "tv"))
+            .filter((r) => (mediaFilter === "all" ? true : r.media_type === mediaFilter));
+
+          state.lastQuery = q;
+          state.lastPage = Number(data?.page) || page;
+          state.lastTotalPages = Number(data?.total_pages) || 1;
+          state.lastTotalResults = Number(data?.total_results) || results.length;
+          state.lastMediaFilter = /** @type {"all"|"movie"|"tv"} */ (mediaFilter);
+
+          const savedMap = watchlistMap();
+          el.results.innerHTML = results.length
+            ? results.map((r) => renderResultItem(r, savedMap)).join("")
+            : `<p class="small">No results. Try a different query.</p>`;
+
+          el.resultsSummary.textContent = `Results: ${state.lastTotalResults.toLocaleString()} • Page ${state.lastPage} of ${state.lastTotalPages}`;
+          setStatus(el.searchStatus, "Done.", "ok");
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          setStatus(el.searchStatus, e instanceof Error ? e.message : "Search failed.", "bad");
+          el.results.innerHTML = `<p class="small">Search failed. Check your credential and try again.</p>`;
+        } finally {
+          state.currentAbort = null;
+          setResultsBusy(false);
+        }
+      }
+
+      function pickSomething() {
+        const items = loadWatchlist();
+        const candidates = applyListFilterSortQuery(items).filter((x) => !x.watched);
+        if (!candidates.length) {
+          setStatus(el.listStatus, "Nothing to pick from (no unwatched items match your filters).", "bad");
+          return;
+        }
+
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        const html = `
+          <div class="item">
+            ${itemPosterHtml(pick.poster_path, `${pick.title} poster`)}
+            <div class="meta">
+              <h3 style="margin:0">
+                <a href="${escapeText(tmdbUrl(pick.media_type, pick.id))}" target="_blank" rel="noreferrer">${escapeText(
+                  pick.title
+                )}</a>
+              </h3>
+              <div class="submeta">
+                <span class="pill">${pick.media_type === "movie" ? "Movie" : "TV"}</span>
+                ${pick.year ? `<span>${escapeText(pick.year)}</span>` : ""}
+                <span>${escapeText(formatRating(pick))}</span>
+              </div>
+              ${
+                pick.overview
+                  ? `<p class="overview">${escapeText(pick.overview)}</p>`
+                  : `<p class="overview small">No overview.</p>`
+              }
+              ${
+                pick.notes
+                  ? `<p class="small"><strong>Notes:</strong> ${escapeText(pick.notes)}</p>`
+                  : `<p class="small">No notes.</p>`
+              }
+              <div class="actions">
+                <button type="button" data-action="toggleWatched" data-media="${escapeText(pick.media_type)}" data-id="${
+                  pick.id
+                }">Mark watched</button>
+              </div>
+            </div>
+          </div>
+        `;
+        el.pickBody.innerHTML = html;
+        el.pickDialog.showModal();
+        setStatus(el.listStatus, "", null);
+      }
+
+      function exportData() {
+        const payload = {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          items: loadWatchlist(),
+        };
+        return JSON.stringify(payload, null, 2);
+      }
+
+      function downloadExport() {
+        const json = exportData();
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `tmdb-watchlist-export-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function importJsonString(jsonString) {
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonString);
+        } catch {
+          throw new Error("Invalid JSON.");
+        }
+
+        const items = Array.isArray(parsed) ? parsed : parsed?.items;
+        if (!Array.isArray(items)) throw new Error("JSON does not contain an items array.");
+
+        /** @type {SavedItem[]} */
+        const normalized = items
+          .filter((x) => x && (x.media_type === "movie" || x.media_type === "tv") && typeof x.id === "number")
+          .map((x) => {
+            return /** @type {SavedItem} */ ({
+              id: Number(x.id),
+              media_type: x.media_type,
+              title: safeTrim(x.title) || "Untitled",
+              year: safeTrim(x.year || ""),
+              poster_path: x.poster_path ?? null,
+              overview: safeTrim(x.overview || ""),
+              vote_average: typeof x.vote_average === "number" ? x.vote_average : null,
+              vote_count: typeof x.vote_count === "number" ? x.vote_count : null,
+              addedAt: typeof x.addedAt === "number" ? x.addedAt : Date.now(),
+              watched: Boolean(x.watched),
+              watchedAt: typeof x.watchedAt === "number" ? x.watchedAt : x.watched ? Date.now() : null,
+              notes: safeTrim(x.notes || ""),
+            });
+          });
+
+        // Merge by key, prefer "newer" item (by addedAt) for duplicates.
+        // Note: use strict ">" so equal timestamps preserve local edits (notes/watched).
+        const merged = new Map();
+        for (const item of loadWatchlist()) merged.set(keyForItem(item.media_type, item.id), item);
+        for (const item of normalized) {
+          const k = keyForItem(item.media_type, item.id);
+          const existing = merged.get(k);
+          if (!existing || (item.addedAt ?? 0) > (existing.addedAt ?? 0)) merged.set(k, item);
+        }
+
+        saveWatchlist([...merged.values()]);
+      }
+
+      // --- Event wiring
+      loadApiCredential();
+      renderWatchlist();
+
+      el.apiKey.addEventListener("input", () => {
+        // Update auto-detect hint without being intrusive.
+        if (el.apiKeyKind.value === "auto") {
+          const guess = guessKeyKind(el.apiKey.value);
+          setStatus(el.searchStatus, el.apiKey.value ? `Auto-detect: ${guess.toUpperCase()}` : "", null);
+        }
+      });
+
+      el.searchForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await runSearch(el.query.value, 1);
+      });
+
+      el.clearSearchBtn.addEventListener("click", () => clearResults());
+      el.testKeyBtn.addEventListener("click", () => testCredential());
+      el.forgetKeyBtn.addEventListener("click", () => {
+        forgetApiCredential();
+        setStatus(el.searchStatus, "Stored credential cleared.", "ok");
+      });
+
+      el.clearListBtn.addEventListener("click", () => {
+        const count = loadWatchlist().length;
+        if (!count) {
+          setStatus(el.listStatus, "Watchlist is already empty.", null);
+          return;
+        }
+        const ok = confirm(`Clear your entire watchlist (${count} items)? This cannot be undone.`);
+        if (!ok) return;
+        clearWatchlist();
+        renderWatchlist();
+        setStatus(el.listStatus, "Watchlist cleared.", "ok");
+      });
+
+      el.prevPageBtn.addEventListener("click", async () => {
+        if (!state.lastQuery || state.lastPage <= 1) return;
+        await runSearch(state.lastQuery, state.lastPage - 1);
+      });
+
+      el.nextPageBtn.addEventListener("click", async () => {
+        if (!state.lastQuery || state.lastPage >= state.lastTotalPages) return;
+        await runSearch(state.lastQuery, state.lastPage + 1);
+      });
+
+      el.results.addEventListener("click", (e) => {
+        const target = /** @type {HTMLElement|null} */ (e.target instanceof HTMLElement ? e.target : null);
+        if (!target) return;
+        const btn = target.closest("button[data-action='save']");
+        if (!btn) return;
+        const media = /** @type {MediaType} */ (btn.getAttribute("data-media"));
+        const id = Number(btn.getAttribute("data-id"));
+
+        // Find matching rendered data by scanning current results (keep it simple).
+        // We rely on the last TMDB response being represented in DOM; instead of re-fetching,
+        // we re-run search (fast enough) only if needed. Here: store from DOM? Not reliable.
+        // So we do a minimal fetch of details for accuracy.
+        (async () => {
+          setStatus(el.searchStatus, "Saving…", null);
+          try {
+            const language = el.language.value;
+            const data = await tmdbFetch(`/${media}/${id}`, { language });
+            const normalized = normalizeSavedItemFromResult({ ...data, media_type: media });
+            const existing = watchlistMap().get(keyForItem(media, id));
+            if (existing) {
+              setStatus(el.searchStatus, "Already saved.", null);
+              return;
+            }
+            upsertWatchlistItem(normalized);
+            renderWatchlist();
+            // Update button states in results.
+            btn.disabled = true;
+            btn.textContent = "Saved";
+            setStatus(el.searchStatus, "Saved to watchlist.", "ok");
+          } catch (err) {
+            setStatus(el.searchStatus, err instanceof Error ? err.message : "Save failed.", "bad");
+          } finally {
+            state.currentAbort = null;
+          }
+        })();
+      });
+
+      function handleToggleWatched(media, id, watched) {
+        const items = loadWatchlist();
+        const k = keyForItem(media, id);
+        const idx = items.findIndex((x) => keyForItem(x.media_type, x.id) === k);
+        if (idx < 0) return;
+        const next = { ...items[idx] };
+        next.watched = watched;
+        next.watchedAt = watched ? Date.now() : null;
+        items[idx] = next;
+        saveWatchlist(items);
+        renderWatchlist();
+      }
+
+      function handleNotes(media, id, notes) {
+        const items = loadWatchlist();
+        const k = keyForItem(media, id);
+        const idx = items.findIndex((x) => keyForItem(x.media_type, x.id) === k);
+        if (idx < 0) return;
+        const next = { ...items[idx] };
+        next.notes = notes;
+        items[idx] = next;
+        saveWatchlist(items);
+      }
+
+      el.watchlist.addEventListener("click", (e) => {
+        const target = /** @type {HTMLElement|null} */ (e.target instanceof HTMLElement ? e.target : null);
+        if (!target) return;
+        const btn = target.closest("button[data-action]");
+        if (!btn) return;
+        const action = btn.getAttribute("data-action");
+        const media = /** @type {MediaType} */ (btn.getAttribute("data-media"));
+        const id = Number(btn.getAttribute("data-id"));
+
+        if (action === "remove") {
+          removeFromWatchlist(media, id);
+          renderWatchlist();
+          setStatus(el.listStatus, "Removed.", "ok");
+          return;
+        }
+        if (action === "toggleWatched") {
+          const item = watchlistMap().get(keyForItem(media, id));
+          if (!item) return;
+          handleToggleWatched(media, id, !item.watched);
+          setStatus(el.listStatus, item.watched ? "Marked unwatched." : "Marked watched.", "ok");
+          return;
+        }
+      });
+
+      el.watchlist.addEventListener("input", (e) => {
+        const target = /** @type {HTMLElement|null} */ (e.target instanceof HTMLElement ? e.target : null);
+        if (!target) return;
+        const input = target.closest("input[data-action='note']");
+        if (!input) return;
+        const media = /** @type {MediaType} */ (input.getAttribute("data-media"));
+        const id = Number(input.getAttribute("data-id"));
+        handleNotes(media, id, input.value);
+      });
+
+      // Allow the pick dialog to mark watched as well.
+      el.pickBody.addEventListener("click", (e) => {
+        const target = /** @type {HTMLElement|null} */ (e.target instanceof HTMLElement ? e.target : null);
+        if (!target) return;
+        const btn = target.closest("button[data-action='toggleWatched']");
+        if (!btn) return;
+        const media = /** @type {MediaType} */ (btn.getAttribute("data-media"));
+        const id = Number(btn.getAttribute("data-id"));
+        handleToggleWatched(media, id, true);
+        setStatus(el.listStatus, "Marked watched.", "ok");
+      });
+
+      el.listFilter.addEventListener("change", () => renderWatchlist());
+      el.listSort.addEventListener("change", () => renderWatchlist());
+      el.listQuery.addEventListener("input", () => renderWatchlist());
+
+      el.pickBtn.addEventListener("click", () => pickSomething());
+      el.pickAgainBtn.addEventListener("click", () => pickSomething());
+      el.closePickBtn.addEventListener("click", () => el.pickDialog.close());
+
+      el.exportBtn.addEventListener("click", async () => {
+        try {
+          const json = exportData();
+          await navigator.clipboard.writeText(json);
+          setStatus(el.listStatus, "Export copied to clipboard.", "ok");
+        } catch {
+          setStatus(el.listStatus, "Could not copy to clipboard. Use “Download export”.", "bad");
+        }
+      });
+      el.downloadExportBtn.addEventListener("click", () => downloadExport());
+
+      el.importBtn.addEventListener("click", () => {
+        const details = el.importText.closest("details");
+        if (details && details instanceof HTMLDetailsElement) details.open = true;
+        el.importText.focus();
+      });
+
+      el.importJsonBtn.addEventListener("click", async () => {
+        try {
+          const text = safeTrim(el.importText.value);
+          if (!text) throw new Error("Paste JSON first.");
+          importJsonString(text);
+          renderWatchlist();
+          setStatus(el.listStatus, "Imported.", "ok");
+        } catch (e) {
+          setStatus(el.listStatus, e instanceof Error ? e.message : "Import failed.", "bad");
+        }
+      });
+
+      el.importFile.addEventListener("change", async () => {
+        const file = el.importFile.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          importJsonString(text);
+          renderWatchlist();
+          setStatus(el.listStatus, `Imported from ${file.name}.`, "ok");
+        } catch (e) {
+          setStatus(el.listStatus, e instanceof Error ? e.message : "Import failed.", "bad");
+        } finally {
+          el.importFile.value = "";
+        }
+      });
+
+      // Small UX: restore last-used UI settings within session.
+      window.addEventListener("beforeunload", () => saveApiCredential());
+    </script>
+  </body>
+</html>
