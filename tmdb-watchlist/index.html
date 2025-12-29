@@ -1158,12 +1158,13 @@
           });
 
         // Merge by key, prefer "newer" item (by addedAt) for duplicates.
+        // Note: use strict ">" so equal timestamps preserve local edits (notes/watched).
         const merged = new Map();
         for (const item of loadWatchlist()) merged.set(keyForItem(item.media_type, item.id), item);
         for (const item of normalized) {
           const k = keyForItem(item.media_type, item.id);
           const existing = merged.get(k);
-          if (!existing || (item.addedAt ?? 0) >= (existing.addedAt ?? 0)) merged.set(k, item);
+          if (!existing || (item.addedAt ?? 0) > (existing.addedAt ?? 0)) merged.set(k, item);
         }
 
         saveWatchlist([...merged.values()]);
