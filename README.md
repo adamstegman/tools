@@ -4,7 +4,7 @@ A single-file website to **search movies and TV shows via the TMDB API** and **s
 
 ## How to use
 
-1. Open `index.html` in a browser.
+1. Open `index.html` in a browser, then click through to the tool.
 2. Paste your **TMDB credential**:
    - **v3 API key** (32-character key), or
    - **v4 access token** (long token / JWT-like string)
