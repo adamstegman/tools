@@ -50,12 +50,12 @@
       footer {
         max-width: 1100px;
         margin: 0 auto;
-        padding: 18px;
+        padding: clamp(12px, 3vw, 18px);
       }
 
       header {
-        padding-top: 22px;
-        padding-bottom: 8px;
+        padding-top: clamp(16px, 4vw, 22px);
+        padding-bottom: clamp(6px, 2vw, 10px);
       }
 
       h1 {
@@ -139,6 +139,7 @@
         border: 1px solid var(--border);
         background: Canvas;
         color: CanvasText;
+        font-size: 16px; /* avoid iOS zoom; better mobile default */
       }
 
       textarea {
@@ -152,9 +153,17 @@
 
       .actions {
         display: flex;
+        flex-direction: column;
         flex-wrap: wrap;
         gap: 10px;
-        align-items: center;
+        align-items: stretch;
+      }
+
+      @media (min-width: 520px) {
+        .actions {
+          flex-direction: row;
+          align-items: center;
+        }
       }
 
       button {
@@ -163,8 +172,18 @@
         background: Canvas;
         color: CanvasText;
         border-radius: 999px;
-        padding: 9px 12px;
+        min-height: 44px; /* comfortable tap target */
+        padding: 10px 14px;
         cursor: pointer;
+      }
+
+      .actions button {
+        width: 100%;
+      }
+      @media (min-width: 520px) {
+        .actions button {
+          width: auto;
+        }
       }
 
       button.primary {
@@ -236,6 +255,18 @@
         height: 100%;
         object-fit: cover;
         display: block;
+      }
+
+      @media (max-width: 420px) {
+        .item {
+          grid-template-columns: 1fr;
+        }
+        .poster {
+          width: 100%;
+          max-width: 160px;
+          height: auto;
+          aspect-ratio: 2 / 3;
+        }
       }
 
       .meta {
@@ -324,6 +355,19 @@
         justify-content: flex-end;
         padding: 12px 14px 14px;
         border-top: 1px solid var(--border);
+      }
+
+      @media (max-width: 520px) {
+        dialog {
+          max-width: calc(100vw - 16px);
+        }
+        .dialog-actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .dialog-actions button {
+          width: 100%;
+        }
       }
     </style>
   </head>
@@ -861,7 +905,7 @@
                   type="text"
                   inputmode="text"
                   autocomplete="off"
-                  placeholder="Add a note (e.g. “watch with Alex”, “S1 first”)"
+                  placeholder="Add a note (e.g. &quot;watch with Alex&quot;, &quot;S1 first&quot;)"
                   data-action="note"
                   data-media="${escapeText(item.media_type)}"
                   data-id="${item.id}"
