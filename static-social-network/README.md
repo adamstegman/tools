@@ -1,4 +1,4 @@
-# Static Social Network
+# Parasocial Network
 
 A single-file HTML “social network” demo with **no login**.
 

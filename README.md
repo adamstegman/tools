@@ -4,7 +4,7 @@ A growing collection of **single-file HTML tools** (each tool lives in its own s
 
 ## Tools
 
-- **Static social network**: photo grid + autoplay video feed (no login; placeholder posts) — `static-social-network/`
+- **Parasocial Network**: photo grid + autoplay video feed (no login; placeholder posts) — `static-social-network/`
 - **TMDB watchlist**: search movies/TV and save a local watchlist — `tmdb-watchlist/`
 
 ## Running locally
