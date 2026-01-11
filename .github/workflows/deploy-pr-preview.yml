@@ -1,0 +1,43 @@
+name: Deploy PR previews
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+concurrency: preview-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare site directory
+        if: github.event.action != 'closed'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf site
+          mkdir -p site
+          cp -R index.html site/
+          cp -R sales-tax-estimator site/
+          cp -R tmdb-watchlist site/
+          cp -R static-social-network site/
+          touch site/.nojekyll
+
+      - name: Deploy preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./site/
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          comment: true
