@@ -938,6 +938,7 @@
       /** @type {Builder} */
       let builder = {
         seriesQuery: "",
+        lastSearchQuery: "",
         seriesResults: [],
         seriesId: null,
         seriesName: "",
@@ -1112,7 +1113,21 @@
       }
 
       el.seriesQuery.addEventListener("input", () => {
-        builder.seriesQuery = el.seriesQuery.value;
+        const next = el.seriesQuery.value;
+        builder.seriesQuery = next;
+
+        // Only clear loaded options when the search text changes from what we last searched.
+        if (builder.lastSearchQuery && safeTrim(next) !== safeTrim(builder.lastSearchQuery)) {
+          builder.seriesResults = [];
+          builder.seriesId = null;
+          builder.seriesName = "";
+          builder.characterOptions = [];
+          builder.characterName = "";
+          builder.characterProfilePath = null;
+          el.seriesStatus.textContent = "—";
+          el.characterStatus.textContent = "Pick a series to load characters.";
+          renderBuilder();
+        }
       });
 
       el.searchSeriesBtn.addEventListener("click", async () => {
@@ -1137,6 +1152,7 @@
         try {
           const results = await tmdbSearchTv(q);
           builder.seriesResults = results;
+          builder.lastSearchQuery = q;
           el.seriesStatus.textContent = results.length ? `Found ${results.length} results.` : "No results.";
           renderBuilder();
         } catch (e) {
@@ -1188,17 +1204,11 @@
           renderAccounts();
           setStatus(`Added: ${builder.characterName}`);
 
-          // reset builder for next account
-          builder.seriesResults = [];
-          builder.seriesId = null;
-          builder.seriesName = "";
-          builder.characterOptions = [];
+          // Keep series + character options so user can add more.
           builder.characterName = "";
           builder.characterProfilePath = null;
-          el.seriesPick.innerHTML = `<option value="">Choose a result…</option>`;
-          el.characterPick.innerHTML = `<option value="">Choose a character…</option>`;
-          el.seriesStatus.textContent = "—";
-          el.characterStatus.textContent = "Pick a series to load characters.";
+          el.characterPick.value = "";
+          el.characterStatus.textContent = "Pick another character to add another account.";
           renderBuilder();
         })();
       });
