@@ -2,8 +2,7 @@
 
 A single-file HTML “social network” demo with **no login**.
 
-- **Photos**: opens on a grid of placeholder photo posts.
-- **Videos**: switch via the navbar to a scrolling feed of **autoplaying** placeholder videos (muted, loops, plays inline).
+- **Text posts**: a scrolling feed of static placeholder posts (rendered in-browser).
 
 ## Running locally
 
@@ -18,5 +17,5 @@ Then visit `http://localhost:8000/static-social-network/`.
 ## Notes
 
 - The “other users” and their posts are **static placeholder content** rendered in-browser.
-- Placeholder images use `picsum.photos`. Placeholder video uses a public MDN sample MP4.
+- Avatars use `picsum.photos` (placeholder).
 

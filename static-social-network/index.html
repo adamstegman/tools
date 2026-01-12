@@ -6,7 +6,7 @@
     <title>Parasocial Network</title>
     <meta
       name="description"
-      content="Parasocial Network: a tiny, no-login ‘social network’ demo with static placeholder posts, a photo grid, and an autoplay video feed."
+      content="Parasocial Network: a tiny, no-login ‘social network’ demo with static placeholder text posts."
     />
     <style>
       :root {
@@ -383,74 +383,27 @@
       <h1>Parasocial Network</h1>
       <p class="lede">
         A “social” network with <strong>no login</strong>. The other users’ posts are <strong>static placeholder content</strong>.
-        Start on photos, switch to autoplay videos using the nav.
+        For now, it’s all text posts.
+      </p>
+      <p class="lede" style="margin-top: 10px">
+        <span class="pill" id="counts"></span>
       </p>
     </header>
-
-    <div class="nav" role="navigation" aria-label="Primary">
-      <div class="nav-inner">
-        <div class="tabs" role="tablist" aria-label="Views">
-          <button class="tab" id="tab-photos" type="button" role="tab" aria-controls="panel-photos" aria-selected="true">
-            Photos
-          </button>
-          <button class="tab" id="tab-videos" type="button" role="tab" aria-controls="panel-videos" aria-selected="false">
-            Videos
-          </button>
-        </div>
-        <div class="nav-meta">
-          <span class="pill" id="counts"></span>
-        </div>
-      </div>
-    </div>
 
     <noscript>
       <main style="max-width: 1100px; margin: 0 auto; padding: 18px">
         <div style="border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: var(--card)">
           <strong>JavaScript required</strong>
           <p class="lede" style="margin: 6px 0 0 0">
-            This tool uses JavaScript to render placeholder posts and switch between the Photos and Videos views.
+            This tool uses JavaScript to render placeholder text posts.
           </p>
         </div>
       </main>
     </noscript>
 
     <main>
-      <section id="panel-photos" role="tabpanel" aria-labelledby="tab-photos">
-        <div class="grid" id="photoGrid" aria-label="Photo posts grid"></div>
-      </section>
-
-      <section id="panel-videos" role="tabpanel" aria-labelledby="tab-videos" class="hidden">
-        <div class="feed" id="videoFeed" aria-label="Video posts feed"></div>
-      </section>
+      <div class="feed" id="textFeed" aria-label="Text posts feed"></div>
     </main>
-
-    <dialog id="photoDialog" aria-labelledby="dialogTitle">
-      <div class="dialog-grid">
-        <div class="dialog-media">
-          <img id="dialogImg" alt="" />
-        </div>
-        <div class="dialog-meta">
-          <div class="who" style="margin-bottom: 10px">
-            <div class="avatar"><img id="dialogAvatar" alt="" /></div>
-            <div style="min-width: 0">
-              <div class="name" id="dialogName"></div>
-              <div class="handle" id="dialogHandle"></div>
-            </div>
-          </div>
-          <div class="timestamp" id="dialogTime" style="margin: 0 0 10px 0"></div>
-          <h2 id="dialogTitle" style="margin: 0 0 8px 0; font-size: 1.05rem">Post</h2>
-          <p id="dialogCaption" style="margin: 0 0 10px 0"></p>
-          <div class="stats" id="dialogStats"></div>
-          <p class="lede" style="margin: 12px 0 0 0; font-size: 0.92rem">
-            Placeholder content only.
-          </p>
-        </div>
-      </div>
-      <div class="dialog-actions">
-        <button class="btn" id="copyLinkBtn" type="button">Copy link</button>
-        <button class="btn primary" id="closeDialogBtn" type="button">Close</button>
-      </div>
-    </dialog>
 
     <footer>
       <p style="margin: 0">
@@ -460,23 +413,8 @@
 
     <script type="module">
       const el = {
-        tabPhotos: /** @type {HTMLButtonElement} */ (document.getElementById("tab-photos")),
-        tabVideos: /** @type {HTMLButtonElement} */ (document.getElementById("tab-videos")),
-        panelPhotos: /** @type {HTMLElement} */ (document.getElementById("panel-photos")),
-        panelVideos: /** @type {HTMLElement} */ (document.getElementById("panel-videos")),
         counts: /** @type {HTMLSpanElement} */ (document.getElementById("counts")),
-        photoGrid: /** @type {HTMLDivElement} */ (document.getElementById("photoGrid")),
-        videoFeed: /** @type {HTMLDivElement} */ (document.getElementById("videoFeed")),
-        photoDialog: /** @type {HTMLDialogElement} */ (document.getElementById("photoDialog")),
-        dialogImg: /** @type {HTMLImageElement} */ (document.getElementById("dialogImg")),
-        dialogAvatar: /** @type {HTMLImageElement} */ (document.getElementById("dialogAvatar")),
-        dialogName: /** @type {HTMLDivElement} */ (document.getElementById("dialogName")),
-        dialogHandle: /** @type {HTMLDivElement} */ (document.getElementById("dialogHandle")),
-        dialogTime: /** @type {HTMLDivElement} */ (document.getElementById("dialogTime")),
-        dialogCaption: /** @type {HTMLParagraphElement} */ (document.getElementById("dialogCaption")),
-        dialogStats: /** @type {HTMLDivElement} */ (document.getElementById("dialogStats")),
-        closeDialogBtn: /** @type {HTMLButtonElement} */ (document.getElementById("closeDialogBtn")),
-        copyLinkBtn: /** @type {HTMLButtonElement} */ (document.getElementById("copyLinkBtn")),
+        textFeed: /** @type {HTMLDivElement} */ (document.getElementById("textFeed")),
       };
 
       function escapeText(s) {
@@ -521,7 +459,7 @@
         { id: "u6", name: "Rae Thompson", handle: "@raet", avatarSeed: "avatar-rae" },
       ];
 
-      /** @typedef {{ id:string, kind:"photo"|"video", userId:string, createdAt:number, caption:string, likes:number, comments:number, reposts:number, media:{ src:string, thumb:string, alt:string } }} Post */
+      /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string, likes:number, comments:number, reposts:number }} Post */
 
       /** @type {Post[]} */
       const posts = (() => {
@@ -529,74 +467,39 @@
         /** @type {Post[]} */
         const out = [];
 
-        const photoCaptions = [
-          "Placeholder post: sunlight, shadows, and a quiet street corner.",
-          "Placeholder post: morning walk vibes.",
-          "Placeholder post: the sky did a thing today.",
-          "Placeholder post: found texture everywhere.",
-          "Placeholder post: tiny details, big mood.",
-          "Placeholder post: candid color study.",
-          "Placeholder post: accidental symmetry.",
-          "Placeholder post: warm tones and soft edges.",
-          "Placeholder post: new favorite angle.",
-          "Placeholder post: a window that tells a story.",
-          "Placeholder post: late afternoon glow.",
-          "Placeholder post: minimal, on purpose.",
-          "Placeholder post: city noise, still frame.",
-          "Placeholder post: this should be a real caption later.",
-          "Placeholder post: testing the grid layout.",
-          "Placeholder post: imagine this is your friend’s vacation photo.",
-          "Placeholder post: “photo dump” energy.",
-          "Placeholder post: just vibes, no context.",
+        const textPosts = [
+          "Placeholder post: I swear I’ve had the same song on repeat for three days.",
+          "Placeholder post: Tiny wins count. Today’s tiny win: I drank water before coffee.",
+          "Placeholder post: If you ever feel behind, remember everyone else is also guessing.",
+          "Placeholder post: I’m in my ‘make it simpler’ era.",
+          "Placeholder post: Tried a new recipe. It was… edible. We’re calling that progress.",
+          "Placeholder post: A reminder that you can change your mind and it’s still a decision.",
+          "Placeholder post: My to-do list is just a list of things I’m avoiding.",
+          "Placeholder post: The weather is doing plot twists again.",
+          "Placeholder post: I miss the version of the internet that felt smaller.",
+          "Placeholder post: If this is your sign, consider it delivered.",
+          "Placeholder post: I’m collecting little moments like they’re souvenirs.",
+          "Placeholder post: Today I’m choosing ‘good enough’ on purpose.",
+          "Placeholder post: The nicest thing you can do is be easy to be around.",
+          "Placeholder post: Brb romanticizing an ordinary afternoon.",
+          "Placeholder post: I don’t need new habits, I need fewer tabs.",
+          "Placeholder post: Reminder: you’re allowed to rest without earning it.",
+          "Placeholder post: Hot take: the best plans include snacks.",
+          "Placeholder post: This should become real copy later—right now it’s just layout fuel.",
         ];
 
-        const videoCaptions = [
-          "Placeholder video: looped clip, autoplay on scroll.",
-          "Placeholder video: imagine a cooking montage here.",
-          "Placeholder video: studio lights, b-roll, and a beat drop.",
-          "Placeholder video: satisfying process shot.",
-          "Placeholder video: tiny travel clip.",
-          "Placeholder video: motion test.",
-        ];
-
-        for (let i = 0; i < photoCaptions.length; i++) {
+        for (let i = 0; i < textPosts.length; i++) {
           const user = users[i % users.length];
-          const id = `p-photo-${i + 1}`;
+          const id = `p-text-${i + 1}`;
           out.push({
             id,
-            kind: "photo",
+            kind: "text",
             userId: user.id,
             createdAt: now - (i * 37 + 9) * 60 * 1000,
-            caption: photoCaptions[i],
+            text: textPosts[i],
             likes: 20 + ((i * 17) % 400),
             comments: 1 + ((i * 7) % 38),
             reposts: (i * 3) % 19,
-            media: {
-              src: picsum(`photo-${id}`, 1400, 1400),
-              thumb: picsum(`photo-${id}`, 800, 800),
-              alt: `Placeholder photo ${i + 1}`,
-            },
-          });
-        }
-
-        for (let i = 0; i < videoCaptions.length; i++) {
-          const user = users[(i + 2) % users.length];
-          const id = `p-video-${i + 1}`;
-          out.push({
-            id,
-            kind: "video",
-            userId: user.id,
-            createdAt: now - (i * 2 + 1) * 60 * 60 * 1000,
-            caption: videoCaptions[i],
-            likes: 80 + ((i * 91) % 900),
-            comments: 2 + ((i * 11) % 120),
-            reposts: 1 + ((i * 5) % 40),
-            media: {
-              // Public CC0 sample video as a placeholder.
-              src: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-              thumb: picsum(`video-${id}`, 1200, 675),
-              alt: `Placeholder video ${i + 1}`,
-            },
           });
         }
 
@@ -617,35 +520,12 @@
         `;
       }
 
-      function renderPhotoCard(p) {
-        const u = userById.get(p.userId);
-        if (!u) return "";
-        return `
-          <button class="photo-card" type="button" data-action="openPhoto" data-id="${escapeText(p.id)}">
-            <span class="thumb">
-              <img src="${escapeText(p.media.thumb)}" alt="${escapeText(p.media.alt)}" loading="lazy" />
-            </span>
-            <span class="card-meta">
-              <span class="who">
-                <span class="avatar"><img src="${escapeText(avatarUrl(u.avatarSeed))}" alt="" loading="lazy" /></span>
-                <span style="min-width:0">
-                  <span class="name">${escapeText(u.name)}</span>
-                  <span class="handle">${escapeText(u.handle)}</span>
-                </span>
-              </span>
-              <span class="caption">${escapeText(p.caption)}</span>
-              <span class="stats">${statsHtml(p)}</span>
-            </span>
-          </button>
-        `;
-      }
-
-      function renderVideoPost(p) {
+      function renderTextPost(p) {
         const u = userById.get(p.userId);
         if (!u) return "";
         const created = new Date(p.createdAt);
         return `
-          <article class="post" data-kind="video" data-id="${escapeText(p.id)}">
+          <article class="post" data-kind="text" data-id="${escapeText(p.id)}">
             <div class="post-head">
               <div class="who">
                 <div class="avatar"><img src="${escapeText(avatarUrl(u.avatarSeed))}" alt="" loading="lazy" /></div>
@@ -656,168 +536,32 @@
               </div>
               <div class="timestamp" title="${escapeText(created.toISOString())}">${escapeText(formatRelative(created))}</div>
             </div>
-            <div class="video-wrap">
-              <video
-                muted
-                playsinline
-                loop
-                preload="metadata"
-                poster="${escapeText(p.media.thumb)}"
-                aria-label="${escapeText(p.media.alt)}"
-                data-autoplay="true"
-              >
-                <source src="${escapeText(p.media.src)}" type="video/mp4" />
-              </video>
-            </div>
             <div class="post-body">
-              <p>${escapeText(p.caption)}</p>
+              <p>${escapeText(p.text)}</p>
               <div class="stats">${statsHtml(p)}</div>
             </div>
           </article>
         `;
       }
 
-      function setView(next) {
-        const isPhotos = next === "photos";
-        el.panelPhotos.classList.toggle("hidden", !isPhotos);
-        el.panelVideos.classList.toggle("hidden", isPhotos);
-        el.tabPhotos.setAttribute("aria-selected", String(isPhotos));
-        el.tabVideos.setAttribute("aria-selected", String(!isPhotos));
-        history.replaceState(null, "", `#${isPhotos ? "photos" : "videos"}`);
-        if (!isPhotos) {
-          // On first switch, attempt to play; IntersectionObserver handles the rest.
-          kickAutoplay();
-        } else {
-          pauseAllVideos();
-        }
-      }
-
-      function pauseAllVideos() {
-        for (const v of el.videoFeed.querySelectorAll("video")) {
-          try {
-            v.pause();
-          } catch {
-            // ignore
-          }
-        }
-      }
-
-      function kickAutoplay() {
-        // Some browsers need a microtask/RAF to reliably start playback after DOM updates.
-        requestAnimationFrame(() => {
-          const v = el.videoFeed.querySelector("video");
-          if (!v) return;
-          v.play().catch(() => {
-            // Autoplay may be blocked; we still keep controls off and let user tap.
-          });
-        });
-      }
-
-      function openPhotoDialog(p) {
-        const u = userById.get(p.userId);
-        if (!u) return;
-        const created = new Date(p.createdAt);
-        el.dialogImg.src = p.media.src;
-        el.dialogImg.alt = p.media.alt;
-        el.dialogAvatar.src = avatarUrl(u.avatarSeed);
-        el.dialogAvatar.alt = "";
-        el.dialogName.textContent = u.name;
-        el.dialogHandle.textContent = u.handle;
-        el.dialogTime.textContent = `${formatRelative(created)} • ${created.toLocaleString()}`;
-        el.dialogCaption.textContent = p.caption;
-        el.dialogStats.innerHTML = statsHtml(p);
-        el.photoDialog.setAttribute("data-open-id", p.id);
-        el.photoDialog.showModal();
-      }
-
-      async function copyLinkToClipboard(postId) {
-        const url = new URL(location.href);
-        url.hash = url.hash && (url.hash === "#videos" || url.hash === "#photos") ? url.hash : "#photos";
-        url.searchParams.set("post", postId);
-        try {
-          await navigator.clipboard.writeText(url.toString());
-          el.copyLinkBtn.textContent = "Copied!";
-          setTimeout(() => (el.copyLinkBtn.textContent = "Copy link"), 900);
-        } catch {
-          // If clipboard fails, fall back to prompt.
-          prompt("Copy this link:", url.toString());
-        }
-      }
-
       function render() {
-        const photoPosts = posts.filter((p) => p.kind === "photo");
-        const videoPosts = posts.filter((p) => p.kind === "video");
-        el.counts.textContent = `${photoPosts.length} photos • ${videoPosts.length} videos`;
-        el.photoGrid.innerHTML = photoPosts.map(renderPhotoCard).join("");
-        el.videoFeed.innerHTML = videoPosts.map(renderVideoPost).join("");
+        el.counts.textContent = `${posts.length} posts`;
+        el.textFeed.innerHTML = posts.map(renderTextPost).join("");
       }
 
       render();
 
-      // Tabs.
-      el.tabPhotos.addEventListener("click", () => setView("photos"));
-      el.tabVideos.addEventListener("click", () => setView("videos"));
-      window.addEventListener("hashchange", () => {
-        const h = (location.hash || "#photos").replace("#", "");
-        setView(h === "videos" ? "videos" : "photos");
-      });
-
-      // Photo dialog open.
-      el.photoGrid.addEventListener("click", (e) => {
-        const target = /** @type {HTMLElement|null} */ (e.target instanceof HTMLElement ? e.target : null);
-        if (!target) return;
-        const btn = target.closest("button[data-action='openPhoto']");
-        if (!btn) return;
-        const id = btn.getAttribute("data-id") || "";
-        const p = posts.find((x) => x.id === id && x.kind === "photo");
-        if (p) openPhotoDialog(p);
-      });
-
-      el.closeDialogBtn.addEventListener("click", () => el.photoDialog.close());
-      el.photoDialog.addEventListener("close", () => {
-        el.photoDialog.removeAttribute("data-open-id");
-        el.copyLinkBtn.textContent = "Copy link";
-      });
-      el.copyLinkBtn.addEventListener("click", async () => {
-        const id = el.photoDialog.getAttribute("data-open-id");
-        if (!id) return;
-        await copyLinkToClipboard(id);
-      });
-
-      // Autoplay only the videos that are on screen.
-      const io = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            const v = /** @type {HTMLVideoElement|null} */ (entry.target instanceof HTMLVideoElement ? entry.target : null);
-            if (!v) continue;
-            if (entry.isIntersecting) {
-              v.play().catch(() => {
-                // Autoplay may be blocked.
-              });
-            } else {
-              try {
-                v.pause();
-              } catch {
-                // ignore
-              }
-            }
-          }
-        },
-        { threshold: 0.65 }
-      );
-      for (const v of el.videoFeed.querySelectorAll("video[data-autoplay='true']")) io.observe(v);
-
-      // Deep-link to a post in the dialog via ?post=... (optional).
+      // Optional: deep-link to a post via ?post=p-text-3
       const params = new URLSearchParams(location.search);
       const deepId = params.get("post");
       if (deepId) {
-        const p = posts.find((x) => x.id === deepId && x.kind === "photo");
-        if (p) openPhotoDialog(p);
+        const target = el.textFeed.querySelector(`[data-id="${CSS.escape(deepId)}"]`);
+        if (target instanceof HTMLElement) {
+          if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
+          target.scrollIntoView({ block: "start", behavior: "smooth" });
+          target.focus();
+        }
       }
-
-      // Initial view.
-      const initial = (location.hash || "#photos").replace("#", "");
-      setView(initial === "videos" ? "videos" : "photos");
     </script>
   </body>
 </html>
