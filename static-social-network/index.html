@@ -760,7 +760,7 @@
         return await tmdbGetJson(url);
       }
 
-      function norm(s) {
+      function normalizeKey(s) {
         return String(s || "")
           .toLowerCase()
           .normalize("NFKD")
@@ -770,57 +770,30 @@
           .trim();
       }
 
-      function fuzzyScore(query, candidate) {
-        const q = norm(query);
-        const c = norm(candidate);
-        if (!q || !c) return 0;
-        if (q === c) return 1000;
-        if (c.includes(q) || q.includes(c)) return 800 + Math.min(q.length, c.length);
-        const qTokens = new Set(q.split(" ").filter(Boolean));
-        const cTokens = new Set(c.split(" ").filter(Boolean));
-        if (!qTokens.size || !cTokens.size) return 0;
-        let inter = 0;
-        for (const t of qTokens) if (cTokens.has(t)) inter++;
-        const union = qTokens.size + cTokens.size - inter;
-        const j = union ? inter / union : 0;
-        return Math.round(j * 500);
-      }
-
-      function bestFuzzyMatch(query, candidates) {
-        /** @type {{ value?: string, score: number }} */
-        let best = { value: undefined, score: 0 };
-        for (const v of candidates) {
-          const s = fuzzyScore(query, v);
-          if (s > best.score) best = { value: v, score: s };
-        }
-        return best;
-      }
-
-      function extractAggregateCharacters(credits) {
-        /** @type {string[]} */
-        const out = [];
+      function extractTopAggregateCharacters(credits, limit = 20) {
+        /** @type {Map<string, { name: string, episodes: number }>} */
+        const byKey = new Map();
         const cast = Array.isArray(credits?.cast) ? credits.cast : [];
         for (const member of cast) {
           const roles = Array.isArray(member?.roles) ? member.roles : [];
           for (const r of roles) {
-            const ch = typeof r?.character === "string" ? r.character.trim() : "";
-            if (ch) out.push(ch);
+            const name = typeof r?.character === "string" ? r.character.trim() : "";
+            if (!name) continue;
+            const k = normalizeKey(name);
+            if (!k) continue;
+            const eps = typeof r?.episode_count === "number" ? r.episode_count : 0;
+            const prev = byKey.get(k);
+            if (!prev) byKey.set(k, { name, episodes: eps });
+            else byKey.set(k, { name: prev.name, episodes: prev.episodes + eps });
           }
         }
-        // unique, keep order
-        const seen = new Set();
-        /** @type {string[]} */
-        const uniq = [];
-        for (const c of out) {
-          const k = norm(c);
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          uniq.push(c);
-        }
-        return uniq;
+        const arr = Array.from(byKey.values())
+          .filter((x) => x.name)
+          .sort((a, b) => b.episodes - a.episodes || a.name.localeCompare(b.name));
+        return arr.slice(0, clampInt(limit, 5, 50));
       }
 
-      /** @typedef {{ slotId:string, label:string, seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterQuery:string, resolvedCharacter:string, hasPersonality:boolean }} Slot */
+      /** @typedef {{ slotId:string, label:string, seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterOptions:{name:string, episodes:number}[], characterName:string, hasPersonality:boolean }} Slot */
       /** @type {Slot[]} */
       let slots = [];
 
@@ -832,16 +805,16 @@
           seriesResults: [],
           seriesId: null,
           seriesName: "",
-          characterQuery: "",
-          resolvedCharacter: "",
+          characterOptions: [],
+          characterName: "",
           hasPersonality: false,
         };
       }
 
       function slotsToUsers() {
-        const picked = slots.filter((s) => s.resolvedCharacter || s.characterQuery || s.label);
+        const picked = slots.filter((s) => s.characterName || s.label);
         if (!picked.length) return [...defaultUsers];
-        const names = picked.map((s) => s.resolvedCharacter || s.characterQuery || s.label);
+        const names = picked.map((s) => s.characterName || s.label);
         const handles = uniquifyHandles(names.map((n) => handleFromName(n)));
         return picked.map((s, i) => {
           const name = names[i];
@@ -860,10 +833,9 @@
         const rows = slots
           .map((s, i) => {
             const seriesLabel = s.seriesName ? `Selected: ${escapeText(s.seriesName)}` : "No series selected";
-            const resolved = s.resolvedCharacter ? escapeText(s.resolvedCharacter) : "";
             const badge = s.hasPersonality
               ? `<span class="pill" title="Character matched from aggregate credits">matched</span>`
-              : `<span class="pill" title="No character match found (or not resolved yet)">no personality</span>`;
+              : `<span class="pill" title="Pick a character to give personality">no personality</span>`;
             return `
               <div class="post" style="padding: 12px" data-slot="${escapeText(s.slotId)}">
                 <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap">
@@ -879,10 +851,25 @@
                   </label>
 
                   <label>
-                    Character name
-                    <input type="text" data-field="characterQuery" value="${escapeText(s.characterQuery)}" placeholder="e.g. Dwight Schrute" />
+                    Character
+                    <select
+                      data-field="characterPick"
+                      style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px"
+                    >
+                      <option value="">Choose a character…</option>
+                      ${(s.characterOptions || [])
+                        .slice(0, 25)
+                        .map((c) => {
+                          const sel = s.characterName && c.name === s.characterName ? "selected" : "";
+                          const label = c.episodes ? `${c.name} (${c.episodes} eps)` : c.name;
+                          return `<option value="${escapeText(c.name)}" ${sel}>${escapeText(label)}</option>`;
+                        })
+                        .join("")}
+                    </select>
                     <span class="hint">${
-                      resolved ? `Resolved: <strong>${resolved}</strong>` : "Resolve to pick the closest match from aggregate credits."
+                      s.seriesId
+                        ? (s.characterOptions?.length ? "Loaded from aggregate credits." : "Choose a series to load characters.")
+                        : "Choose a series to load characters."
                     }</span>
                   </label>
                 </div>
@@ -904,7 +891,6 @@
                         })
                         .join("")}
                     </select>
-                    <button class="btn" type="button" data-action="resolveCharacter">Resolve character</button>
                   </div>
                   <div class="setup-status" data-field="slotStatus"></div>
                 </div>
@@ -950,8 +936,8 @@
             seriesQuery: s.seriesQuery,
             seriesId: s.seriesId,
             seriesName: s.seriesName,
-            characterQuery: s.characterQuery,
-            resolvedCharacter: s.resolvedCharacter,
+            characterOptions: s.characterOptions,
+            characterName: s.characterName,
             hasPersonality: s.hasPersonality,
           })),
         });
@@ -974,8 +960,8 @@
             seriesQuery: typeof s?.seriesQuery === "string" ? s.seriesQuery : "",
             seriesId: typeof s?.seriesId === "number" ? s.seriesId : null,
             seriesName: typeof s?.seriesName === "string" ? s.seriesName : "",
-            characterQuery: typeof s?.characterQuery === "string" ? s.characterQuery : "",
-            resolvedCharacter: typeof s?.resolvedCharacter === "string" ? s.resolvedCharacter : "",
+            characterOptions: Array.isArray(s?.characterOptions) ? s.characterOptions : [],
+            characterName: typeof s?.characterName === "string" ? s.characterName : "",
             hasPersonality: Boolean(s?.hasPersonality),
           }));
         } else if (labels.length) {
@@ -993,6 +979,44 @@
       el.tmdbKey.addEventListener("change", () => persist());
       el.accountSlots.addEventListener("change", () => persist());
 
+      async function loadCharactersForSlot(slotId) {
+        const s = slots.find((x) => x.slotId === slotId);
+        if (!s) return;
+        const apiKey = el.tmdbKey.value.trim();
+        if (!apiKey || !s.seriesId) return;
+
+        // Show immediate feedback.
+        s.characterOptions = [];
+        s.characterName = "";
+        s.hasPersonality = false;
+        renderSlots();
+
+        const slotEl = el.slotsWrap.querySelector(`[data-slot="${CSS.escape(slotId)}"]`);
+        const statusEl = slotEl?.querySelector("[data-field='slotStatus']");
+        const setSlotStatus = (msg) => {
+          if (statusEl) statusEl.textContent = msg || "";
+        };
+        setSlotStatus("Loading characters…");
+
+        try {
+          const credits = await tmdbAggregateCredits(apiKey, s.seriesId);
+          const top = extractTopAggregateCharacters(credits, 25);
+          s.characterOptions = top;
+          s.characterName = top[0]?.name ? top[0].name : "";
+          s.hasPersonality = Boolean(s.characterName);
+          renderSlots();
+          persist();
+          setSlotStatus(top.length ? `Loaded ${top.length} characters.` : "No characters found.");
+        } catch {
+          s.characterOptions = [];
+          s.characterName = "";
+          s.hasPersonality = false;
+          renderSlots();
+          persist();
+          setSlotStatus("Failed to load characters.");
+        }
+      }
+
       el.slotsWrap.addEventListener("input", (e) => {
         const target = e.target instanceof HTMLElement ? e.target : null;
         if (!target) return;
@@ -1007,13 +1031,9 @@
           s.seriesResults = [];
           s.seriesId = null;
           s.seriesName = "";
+          s.characterOptions = [];
+          s.characterName = "";
           s.hasPersonality = false;
-          s.resolvedCharacter = "";
-        }
-        if (field === "characterQuery" && target instanceof HTMLInputElement) {
-          s.characterQuery = target.value;
-          s.hasPersonality = false;
-          s.resolvedCharacter = "";
         }
         persist();
       });
@@ -1033,8 +1053,15 @@
           s.seriesId = Number.isFinite(id) ? id : null;
           const match = (s.seriesResults || []).find((r) => typeof r?.id === "number" && r.id === s.seriesId);
           s.seriesName = typeof match?.name === "string" ? match.name : s.seriesName;
+          s.characterOptions = [];
+          s.characterName = "";
           s.hasPersonality = false;
-          s.resolvedCharacter = "";
+          persist();
+          if (s.seriesId) void loadCharactersForSlot(s.slotId);
+        }
+        if (field === "characterPick" && target instanceof HTMLSelectElement) {
+          s.characterName = target.value || "";
+          s.hasPersonality = Boolean(s.characterName);
           persist();
         }
       });
@@ -1073,53 +1100,14 @@
             s.seriesResults = results;
             s.seriesId = null;
             s.seriesName = "";
+            s.characterOptions = [];
+            s.characterName = "";
             s.hasPersonality = false;
-            s.resolvedCharacter = "";
             renderSlots();
             setSlotStatus(results.length ? `Found ${results.length} results.` : "No results.");
             persist();
           } catch {
             setSlotStatus("Search failed.");
-          }
-          return;
-        }
-
-        if (action === "resolveCharacter") {
-          if (!apiKey) {
-            setSlotStatus("Add a TMDB API key first.");
-            return;
-          }
-          if (!s.seriesId) {
-            setSlotStatus("Choose a series first.");
-            return;
-          }
-          const q = s.characterQuery.trim();
-          if (!q) {
-            setSlotStatus("Type a character name to match.");
-            return;
-          }
-          setSlotStatus("Fetching aggregate credits…");
-          try {
-            const credits = await tmdbAggregateCredits(apiKey, s.seriesId);
-            const chars = extractAggregateCharacters(credits);
-            const best = bestFuzzyMatch(q, chars);
-            if (best.value && best.score >= 250) {
-              s.resolvedCharacter = best.value;
-              s.hasPersonality = true;
-              setSlotStatus(`Matched: ${best.value}`);
-            } else {
-              s.resolvedCharacter = q;
-              s.hasPersonality = false;
-              setSlotStatus("No match found. Using your input (no personality).");
-            }
-            renderSlots();
-            persist();
-          } catch {
-            s.resolvedCharacter = q;
-            s.hasPersonality = false;
-            renderSlots();
-            persist();
-            setSlotStatus("Credits fetch failed. Using your input (no personality).");
           }
           return;
         }
