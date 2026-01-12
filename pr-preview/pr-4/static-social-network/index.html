@@ -67,6 +67,72 @@
         color: var(--muted);
       }
 
+      .setup {
+        margin-top: 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+        box-shadow: var(--shadow);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .setup-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      @media (min-width: 920px) {
+        .setup-grid {
+          grid-template-columns: 1fr 1.2fr;
+          align-items: start;
+        }
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 650;
+      }
+
+      .hint {
+        font-weight: 500;
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.35;
+      }
+
+      input[type="text"],
+      input[type="password"],
+      textarea {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: Canvas;
+        color: CanvasText;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 88px;
+      }
+
+      .setup-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .setup-status {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
       .nav {
         position: sticky;
         top: 0;
@@ -211,6 +277,10 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .handle .pill {
+        margin-left: 8px;
       }
 
       .caption {
@@ -385,6 +455,37 @@
         A “social” network with <strong>no login</strong>. The other users’ posts are <strong>static placeholder content</strong>.
         For now, it’s all text posts.
       </p>
+
+      <form class="setup" id="setupForm">
+        <div class="setup-grid">
+          <label>
+            TMDB API key
+            <input
+              id="tmdbKey"
+              type="password"
+              inputmode="text"
+              autocomplete="off"
+              placeholder="Paste your TMDB v3 API key"
+            />
+            <span class="hint">Used only to look up account names via TMDB’s Person search API. Saved locally in this browser.</span>
+          </label>
+
+          <label>
+            Account names (one per line)
+            <textarea id="accountNames" placeholder="e.g.\nTom Hanks\nZendaya\nKeanu Reeves"></textarea>
+            <span class="hint">
+              We’ll search TMDB for each name and pick the result with the highest popularity. If no results, the name still
+              appears but is marked “no personality.”
+            </span>
+          </label>
+        </div>
+
+        <div class="setup-actions">
+          <button class="btn primary" type="submit" id="loadBtn">Load accounts</button>
+          <div class="setup-status" id="setupStatus" role="status" aria-live="polite"></div>
+        </div>
+      </form>
+
       <p class="lede" style="margin-top: 10px">
         <span class="pill" id="counts"></span>
       </p>
@@ -413,6 +514,11 @@
 
     <script type="module">
       const el = {
+        setupForm: /** @type {HTMLFormElement} */ (document.getElementById("setupForm")),
+        tmdbKey: /** @type {HTMLInputElement} */ (document.getElementById("tmdbKey")),
+        accountNames: /** @type {HTMLTextAreaElement} */ (document.getElementById("accountNames")),
+        setupStatus: /** @type {HTMLDivElement} */ (document.getElementById("setupStatus")),
+        loadBtn: /** @type {HTMLButtonElement} */ (document.getElementById("loadBtn")),
         counts: /** @type {HTMLSpanElement} */ (document.getElementById("counts")),
         textFeed: /** @type {HTMLDivElement} */ (document.getElementById("textFeed")),
       };
@@ -450,63 +556,97 @@
         return `https://picsum.photos/seed/${encodeURIComponent(seed)}/${width}/${height}`;
       }
 
-      const users = [
-        { id: "u1", name: "Kai Rivera", handle: "@kai", avatarSeed: "avatar-kai" },
-        { id: "u2", name: "Mina Patel", handle: "@minap", avatarSeed: "avatar-mina" },
-        { id: "u3", name: "Jules Nguyen", handle: "@julesn", avatarSeed: "avatar-jules" },
-        { id: "u4", name: "Sam Okafor", handle: "@samok", avatarSeed: "avatar-sam" },
-        { id: "u5", name: "Avery Chen", handle: "@avery", avatarSeed: "avatar-avery" },
-        { id: "u6", name: "Rae Thompson", handle: "@raet", avatarSeed: "avatar-rae" },
-      ];
-
+      /** @typedef {{ id:string, name:string, handle:string, avatarSeed:string, hasPersonality:boolean }} User */
       /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string, likes:number, comments:number, reposts:number }} Post */
 
+      const LS_KEY = "parasocialNetwork.v1";
+
+      function loadPrefs() {
+        try {
+          const raw = localStorage.getItem(LS_KEY);
+          if (!raw) return { tmdbKey: "", namesText: "" };
+          const parsed = JSON.parse(raw);
+          return {
+            tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
+            namesText: typeof parsed.namesText === "string" ? parsed.namesText : "",
+          };
+        } catch {
+          return { tmdbKey: "", namesText: "" };
+        }
+      }
+
+      function savePrefs(prefs) {
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify(prefs));
+        } catch {
+          // ignore
+        }
+      }
+
+      const defaultUsers = /** @type {User[]} */ ([
+        { id: "u1", name: "Kai Rivera", handle: "@kai", avatarSeed: "avatar-kai", hasPersonality: true },
+        { id: "u2", name: "Mina Patel", handle: "@minap", avatarSeed: "avatar-mina", hasPersonality: true },
+        { id: "u3", name: "Jules Nguyen", handle: "@julesn", avatarSeed: "avatar-jules", hasPersonality: true },
+        { id: "u4", name: "Sam Okafor", handle: "@samok", avatarSeed: "avatar-sam", hasPersonality: true },
+        { id: "u5", name: "Avery Chen", handle: "@avery", avatarSeed: "avatar-avery", hasPersonality: true },
+        { id: "u6", name: "Rae Thompson", handle: "@raet", avatarSeed: "avatar-rae", hasPersonality: true },
+      ]);
+
+      /** @type {User[]} */
+      let users = [...defaultUsers];
+
+      const placeholderTexts = [
+        "Placeholder post: I swear I’ve had the same song on repeat for three days.",
+        "Placeholder post: Tiny wins count. Today’s tiny win: I drank water before coffee.",
+        "Placeholder post: If you ever feel behind, remember everyone else is also guessing.",
+        "Placeholder post: I’m in my ‘make it simpler’ era.",
+        "Placeholder post: Tried a new recipe. It was… edible. We’re calling that progress.",
+        "Placeholder post: A reminder that you can change your mind and it’s still a decision.",
+        "Placeholder post: My to-do list is just a list of things I’m avoiding.",
+        "Placeholder post: The weather is doing plot twists again.",
+        "Placeholder post: I miss the version of the internet that felt smaller.",
+        "Placeholder post: If this is your sign, consider it delivered.",
+        "Placeholder post: I’m collecting little moments like they’re souvenirs.",
+        "Placeholder post: Today I’m choosing ‘good enough’ on purpose.",
+        "Placeholder post: The nicest thing you can do is be easy to be around.",
+        "Placeholder post: Brb romanticizing an ordinary afternoon.",
+        "Placeholder post: I don’t need new habits, I need fewer tabs.",
+        "Placeholder post: Reminder: you’re allowed to rest without earning it.",
+        "Placeholder post: Hot take: the best plans include snacks.",
+        "Placeholder post: This should become real copy later—right now it’s just layout fuel.",
+      ];
+
       /** @type {Post[]} */
-      const posts = (() => {
+      let posts = [];
+
+      /** @type {Map<string, User>} */
+      let userById = new Map();
+
+      function rebuildUsersIndex() {
+        userById = new Map(users.map((u) => [u.id, u]));
+      }
+
+      function rebuildPosts() {
         const now = Date.now();
         /** @type {Post[]} */
         const out = [];
-
-        const textPosts = [
-          "Placeholder post: I swear I’ve had the same song on repeat for three days.",
-          "Placeholder post: Tiny wins count. Today’s tiny win: I drank water before coffee.",
-          "Placeholder post: If you ever feel behind, remember everyone else is also guessing.",
-          "Placeholder post: I’m in my ‘make it simpler’ era.",
-          "Placeholder post: Tried a new recipe. It was… edible. We’re calling that progress.",
-          "Placeholder post: A reminder that you can change your mind and it’s still a decision.",
-          "Placeholder post: My to-do list is just a list of things I’m avoiding.",
-          "Placeholder post: The weather is doing plot twists again.",
-          "Placeholder post: I miss the version of the internet that felt smaller.",
-          "Placeholder post: If this is your sign, consider it delivered.",
-          "Placeholder post: I’m collecting little moments like they’re souvenirs.",
-          "Placeholder post: Today I’m choosing ‘good enough’ on purpose.",
-          "Placeholder post: The nicest thing you can do is be easy to be around.",
-          "Placeholder post: Brb romanticizing an ordinary afternoon.",
-          "Placeholder post: I don’t need new habits, I need fewer tabs.",
-          "Placeholder post: Reminder: you’re allowed to rest without earning it.",
-          "Placeholder post: Hot take: the best plans include snacks.",
-          "Placeholder post: This should become real copy later—right now it’s just layout fuel.",
-        ];
-
-        for (let i = 0; i < textPosts.length; i++) {
-          const user = users[i % users.length];
+        const safeUsers = users.length ? users : [...defaultUsers];
+        for (let i = 0; i < placeholderTexts.length; i++) {
+          const user = safeUsers[i % safeUsers.length];
           const id = `p-text-${i + 1}`;
           out.push({
             id,
             kind: "text",
             userId: user.id,
             createdAt: now - (i * 37 + 9) * 60 * 1000,
-            text: textPosts[i],
+            text: placeholderTexts[i],
             likes: 20 + ((i * 17) % 400),
             comments: 1 + ((i * 7) % 38),
             reposts: (i * 3) % 19,
           });
         }
-
-        return out;
-      })();
-
-      const userById = new Map(users.map((u) => [u.id, u]));
+        posts = out;
+      }
 
       function avatarUrl(seed) {
         return picsum(seed, 96, 96);
@@ -524,6 +664,7 @@
         const u = userById.get(p.userId);
         if (!u) return "";
         const created = new Date(p.createdAt);
+        const noPersonality = !u.hasPersonality;
         return `
           <article class="post" data-kind="text" data-id="${escapeText(p.id)}">
             <div class="post-head">
@@ -531,7 +672,10 @@
                 <div class="avatar"><img src="${escapeText(avatarUrl(u.avatarSeed))}" alt="" loading="lazy" /></div>
                 <div style="min-width: 0">
                   <div class="name">${escapeText(u.name)}</div>
-                  <div class="handle">${escapeText(u.handle)}</div>
+                  <div class="handle">
+                    ${escapeText(u.handle)}
+                    ${noPersonality ? `<span class="pill" title="TMDB lookup returned no results">no personality</span>` : ""}
+                  </div>
                 </div>
               </div>
               <div class="timestamp" title="${escapeText(created.toISOString())}">${escapeText(formatRelative(created))}</div>
@@ -544,12 +688,157 @@
         `;
       }
 
+      function setStatus(msg) {
+        el.setupStatus.textContent = msg || "";
+      }
+
+      function parseAccountNames(text) {
+        const raw = String(text || "")
+          .split(/\r?\n/g)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        // de-dupe but keep order
+        const seen = new Set();
+        /** @type {string[]} */
+        const out = [];
+        for (const n of raw) {
+          const key = n.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(n);
+        }
+        return out;
+      }
+
+      function handleFromName(name) {
+        const s = String(name || "")
+          .toLowerCase()
+          .normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "")
+          .slice(0, 18);
+        return `@${s || "user"}`;
+      }
+
+      function uniquifyHandles(list) {
+        /** @type {Record<string, number>} */
+        const counts = {};
+        return list.map((h) => {
+          const base = h;
+          const n = (counts[base] ?? 0) + 1;
+          counts[base] = n;
+          return n === 1 ? base : `${base}${n}`;
+        });
+      }
+
+      async function tmdbSearchPerson(apiKey, query) {
+        const url = new URL("https://api.themoviedb.org/3/search/person");
+        url.searchParams.set("api_key", apiKey);
+        url.searchParams.set("query", query);
+        url.searchParams.set("include_adult", "false");
+        url.searchParams.set("page", "1");
+        const res = await fetch(url.toString(), { method: "GET", mode: "cors" });
+        if (!res.ok) throw new Error(`TMDB error ${res.status}`);
+        return await res.json();
+      }
+
+      async function buildUsersFromNames(apiKey, names) {
+        if (!names.length) return [...defaultUsers];
+
+        /** @type {{ name:string, hasPersonality:boolean, tmdbId?:number, popularity?:number }[]} */
+        const resolved = [];
+
+        for (const inputName of names) {
+          if (!apiKey) {
+            resolved.push({ name: inputName, hasPersonality: false });
+            continue;
+          }
+          try {
+            const data = await tmdbSearchPerson(apiKey, inputName);
+            const results = Array.isArray(data?.results) ? data.results : [];
+            if (!results.length) {
+              resolved.push({ name: inputName, hasPersonality: false });
+              continue;
+            }
+            let best = results[0];
+            for (const r of results) {
+              if ((r?.popularity ?? -1) > (best?.popularity ?? -1)) best = r;
+            }
+            const bestName = typeof best?.name === "string" && best.name.trim() ? best.name.trim() : inputName;
+            resolved.push({
+              name: bestName,
+              hasPersonality: true,
+              tmdbId: typeof best?.id === "number" ? best.id : undefined,
+              popularity: typeof best?.popularity === "number" ? best.popularity : undefined,
+            });
+          } catch {
+            resolved.push({ name: inputName, hasPersonality: false });
+          }
+        }
+
+        const handles = uniquifyHandles(resolved.map((r) => handleFromName(r.name)));
+
+        /** @type {User[]} */
+        const out = resolved.map((r, i) => {
+          const seed = r.hasPersonality
+            ? `tmdb-${r.tmdbId ?? r.name}`
+            : `no-personality-${r.name}`;
+          return {
+            id: `u${i + 1}`,
+            name: r.name,
+            handle: handles[i],
+            avatarSeed: seed,
+            hasPersonality: r.hasPersonality,
+          };
+        });
+
+        return out.length ? out : [...defaultUsers];
+      }
+
       function render() {
-        el.counts.textContent = `${posts.length} posts`;
+        const noPersonalityCount = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
+        el.counts.textContent = `${posts.length} posts • ${users.length} accounts${
+          noPersonalityCount ? ` • ${noPersonalityCount} no personality` : ""
+        }`;
         el.textFeed.innerHTML = posts.map(renderTextPost).join("");
       }
 
-      render();
+      function applyState() {
+        rebuildUsersIndex();
+        rebuildPosts();
+        render();
+      }
+
+      // Initial render.
+      applyState();
+
+      // Restore saved inputs (optional).
+      const prefs = loadPrefs();
+      if (prefs.tmdbKey) el.tmdbKey.value = prefs.tmdbKey;
+      if (prefs.namesText) el.accountNames.value = prefs.namesText;
+
+      el.setupForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const apiKey = el.tmdbKey.value.trim();
+        const namesText = el.accountNames.value;
+        const names = parseAccountNames(namesText);
+        savePrefs({ tmdbKey: apiKey, namesText });
+
+        el.loadBtn.disabled = true;
+        setStatus(names.length ? "Looking up names on TMDB…" : "Using default accounts…");
+        try {
+          users = await buildUsersFromNames(apiKey, names);
+          applyState();
+          const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
+          setStatus(
+            names.length
+              ? `Loaded ${users.length} accounts (${missing ? `${missing} no personality` : "all have personality"}).`
+              : `Loaded ${users.length} default accounts.`
+          );
+        } finally {
+          el.loadBtn.disabled = false;
+        }
+      });
 
       // Optional: deep-link to a post via ?post=p-text-3
       const params = new URLSearchParams(location.search);
