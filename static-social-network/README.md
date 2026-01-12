@@ -3,6 +3,7 @@
 A single-file HTML “social network” demo with **no login**.
 
 - **Text posts**: a scrolling feed of static placeholder posts (rendered in-browser).
+- **TMDB-powered accounts**: paste a TMDB API key + a list of names to populate the “accounts” in the feed by searching TMDB’s Person API (highest popularity match wins). Names with no results are marked “no personality.”
 
 ## Running locally
 
