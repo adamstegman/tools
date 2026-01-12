@@ -613,7 +613,7 @@
         return `https://picsum.photos/seed/${encodeURIComponent(seed)}/${width}/${height}`;
       }
 
-      /** @typedef {{ id:string, name:string, handle:string, avatarSeed:string, hasPersonality:boolean }} User */
+      /** @typedef {{ id:string, name:string, handle:string, avatarSeed:string, avatarUrl?:string|null, hasPersonality:boolean }} User */
       /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string, likes:number, comments:number, reposts:number }} Post */
 
       const LS_KEY = "parasocialNetwork.v3";
@@ -713,6 +713,11 @@
         return picsum(seed, 96, 96);
       }
 
+      function avatarSrcForUser(u) {
+        const url = typeof u.avatarUrl === "string" && u.avatarUrl ? u.avatarUrl : "";
+        return url || avatarUrl(u.avatarSeed);
+      }
+
       function statsHtml(p) {
         return `
           <span aria-label="Likes">❤ ${p.likes.toLocaleString()}</span>
@@ -730,7 +735,7 @@
           <article class="post" data-kind="text" data-id="${escapeText(p.id)}">
             <div class="post-head">
               <div class="who">
-                <div class="avatar"><img src="${escapeText(avatarUrl(u.avatarSeed))}" alt="" loading="lazy" /></div>
+                <div class="avatar"><img src="${escapeText(avatarSrcForUser(u))}" alt="" loading="lazy" /></div>
                 <div style="min-width: 0">
                   <div class="name">${escapeText(u.name)}</div>
                   <div class="handle">
@@ -853,6 +858,27 @@
         return await res.json();
       }
 
+      /** @type {{ secureBaseUrl: string, profileSize: string } | null} */
+      let tmdbImageConfig = null;
+
+      async function ensureTmdbImageConfig() {
+        if (tmdbImageConfig) return tmdbImageConfig;
+        const data = await tmdbFetch("/configuration", {});
+        const secureBaseUrl = safeTrim(data?.images?.secure_base_url) || safeTrim(data?.images?.base_url) || "";
+        const sizes = Array.isArray(data?.images?.profile_sizes) ? data.images.profile_sizes : [];
+        const smallest = sizes.find((s) => typeof s === "string" && s && s !== "original") || "original";
+        if (!secureBaseUrl) throw new Error("TMDB configuration missing image base URL.");
+        tmdbImageConfig = { secureBaseUrl, profileSize: smallest };
+        return tmdbImageConfig;
+      }
+
+      async function tmdbProfileImageUrl(profilePath) {
+        const p = safeTrim(profilePath);
+        if (!p) return null;
+        const cfg = await ensureTmdbImageConfig();
+        return `${cfg.secureBaseUrl}${cfg.profileSize}${p}`;
+      }
+
       async function tmdbSearchTv(query) {
         const data = await tmdbFetch("/search/tv", { query, include_adult: "false", page: "1" });
         return Array.isArray(data?.results) ? data.results : [];
@@ -873,10 +899,11 @@
       }
 
       function extractTopAggregateCharacters(credits, limit = 20) {
-        /** @type {Map<string, { name: string, episodes: number }>} */
+        /** @type {Map<string, { name: string, episodes: number, profilePath: string|null }>} */
         const byKey = new Map();
         const cast = Array.isArray(credits?.cast) ? credits.cast : [];
         for (const member of cast) {
+          const memberProfile = typeof member?.profile_path === "string" ? member.profile_path : null;
           const roles = Array.isArray(member?.roles) ? member.roles : [];
           for (const r of roles) {
             const name = typeof r?.character === "string" ? r.character.trim() : "";
@@ -885,8 +912,16 @@
             if (!k) continue;
             const eps = typeof r?.episode_count === "number" ? r.episode_count : 0;
             const prev = byKey.get(k);
-            if (!prev) byKey.set(k, { name, episodes: eps });
-            else byKey.set(k, { name: prev.name, episodes: prev.episodes + eps });
+            if (!prev) {
+              byKey.set(k, { name, episodes: eps, profilePath: memberProfile });
+            } else {
+              // Keep a profile_path if we don't have one yet.
+              byKey.set(k, {
+                name: prev.name,
+                episodes: prev.episodes + eps,
+                profilePath: prev.profilePath || memberProfile,
+              });
+            }
           }
         }
         const arr = Array.from(byKey.values())
@@ -895,11 +930,11 @@
         return arr.slice(0, clampInt(limit, 5, 50));
       }
 
-      /** @typedef {{ seriesId:number|null, seriesName:string, characterName:string, hasPersonality:boolean }} Account */
+      /** @typedef {{ seriesId:number|null, seriesName:string, characterName:string, profilePath?:string|null, avatarUrl?:string|null, hasPersonality:boolean }} Account */
       /** @type {Account[]} */
       let accounts = [];
 
-      /** @typedef {{ seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterOptions:{name:string, episodes:number}[], characterName:string }} Builder */
+      /** @typedef {{ seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterOptions:{name:string, episodes:number, profilePath:string|null}[], characterName:string, characterProfilePath:string|null }} Builder */
       /** @type {Builder} */
       let builder = {
         seriesQuery: "",
@@ -908,6 +943,7 @@
         seriesName: "",
         characterOptions: [],
         characterName: "",
+        characterProfilePath: null,
       };
 
       function accountsToUsers() {
@@ -923,6 +959,7 @@
             name,
             handle: handles[i],
             avatarSeed: seed,
+            avatarUrl: typeof a.avatarUrl === "string" && a.avatarUrl ? a.avatarUrl : null,
             hasPersonality: Boolean(a.hasPersonality),
           };
         });
@@ -1020,6 +1057,8 @@
             seriesId: typeof s?.seriesId === "number" ? s.seriesId : null,
             seriesName: typeof s?.seriesName === "string" ? s.seriesName : "",
             characterName: typeof s?.characterName === "string" ? s.characterName : "",
+            profilePath: typeof s?.profilePath === "string" ? s.profilePath : null,
+            avatarUrl: typeof s?.avatarUrl === "string" ? s.avatarUrl : null,
             hasPersonality: Boolean(s?.hasPersonality) && Boolean(s?.characterName),
           }))
           .filter((a) => a.characterName);
@@ -1046,18 +1085,27 @@
         if (!cred || !builder.seriesId) return;
         builder.characterOptions = [];
         builder.characterName = "";
+        builder.characterProfilePath = null;
         el.characterStatus.textContent = "Loading characters…";
         renderBuilder();
         try {
           const credits = await tmdbAggregateCredits(builder.seriesId);
+          // Prime image configuration so profile URLs can be built later.
+          try {
+            await ensureTmdbImageConfig();
+          } catch {
+            // Non-fatal: we can still show character names without images.
+          }
           const top = extractTopAggregateCharacters(credits, 25);
           builder.characterOptions = top;
           builder.characterName = "";
+          builder.characterProfilePath = null;
           el.characterStatus.textContent = top.length ? `Loaded ${top.length} characters.` : "No characters found.";
           renderBuilder();
         } catch (e) {
           builder.characterOptions = [];
           builder.characterName = "";
+          builder.characterProfilePath = null;
           el.characterStatus.textContent = e instanceof Error ? e.message : "Failed to load characters.";
           renderBuilder();
         }
@@ -1106,6 +1154,7 @@
         builder.seriesName = typeof match?.name === "string" ? match.name : "";
         builder.characterOptions = [];
         builder.characterName = "";
+        builder.characterProfilePath = null;
         el.characterStatus.textContent = builder.seriesId ? "Loading characters…" : "Pick a series to load characters.";
         renderBuilder();
         if (builder.seriesId) await loadBuilderCharacters();
@@ -1113,32 +1162,45 @@
 
       el.characterPick.addEventListener("change", () => {
         builder.characterName = el.characterPick.value || "";
+        const picked = builder.characterOptions.find((c) => c.name === builder.characterName);
+        builder.characterProfilePath = picked?.profilePath ?? null;
         el.addAccountBtn.disabled = !(builder.seriesId && builder.characterName);
       });
 
       el.addAccountBtn.addEventListener("click", () => {
         if (!builder.seriesId || !builder.characterName) return;
-        accounts.push({
-          seriesId: builder.seriesId,
-          seriesName: builder.seriesName,
-          characterName: builder.characterName,
-          hasPersonality: true,
-        });
-        persist();
-        renderAccounts();
-        setStatus(`Added: ${builder.characterName}`);
+        (async () => {
+          let avatarUrl = null;
+          try {
+            avatarUrl = await tmdbProfileImageUrl(builder.characterProfilePath);
+          } catch {
+            avatarUrl = null;
+          }
+          accounts.push({
+            seriesId: builder.seriesId,
+            seriesName: builder.seriesName,
+            characterName: builder.characterName,
+            profilePath: builder.characterProfilePath,
+            avatarUrl,
+            hasPersonality: true,
+          });
+          persist();
+          renderAccounts();
+          setStatus(`Added: ${builder.characterName}`);
 
-        // reset builder for next account
-        builder.seriesResults = [];
-        builder.seriesId = null;
-        builder.seriesName = "";
-        builder.characterOptions = [];
-        builder.characterName = "";
-        el.seriesPick.innerHTML = `<option value="">Choose a result…</option>`;
-        el.characterPick.innerHTML = `<option value="">Choose a character…</option>`;
-        el.seriesStatus.textContent = "—";
-        el.characterStatus.textContent = "Pick a series to load characters.";
-        renderBuilder();
+          // reset builder for next account
+          builder.seriesResults = [];
+          builder.seriesId = null;
+          builder.seriesName = "";
+          builder.characterOptions = [];
+          builder.characterName = "";
+          builder.characterProfilePath = null;
+          el.seriesPick.innerHTML = `<option value="">Choose a result…</option>`;
+          el.characterPick.innerHTML = `<option value="">Choose a character…</option>`;
+          el.seriesStatus.textContent = "—";
+          el.characterStatus.textContent = "Pick a series to load characters.";
+          renderBuilder();
+        })();
       });
 
       el.accountsWrap.addEventListener("click", (e) => {
@@ -1156,8 +1218,21 @@
         if (removed[0]?.characterName) setStatus(`Removed: ${removed[0].characterName}`);
       });
 
-      el.setupForm.addEventListener("submit", (e) => {
+      el.setupForm.addEventListener("submit", async (e) => {
         e.preventDefault();
+        // Backfill avatar URLs if we have profile_path saved but no computed URL yet.
+        const needs = accounts.some((a) => a.profilePath && !a.avatarUrl);
+        if (needs) {
+          for (const a of accounts) {
+            if (!a.profilePath || (typeof a.avatarUrl === "string" && a.avatarUrl)) continue;
+            try {
+              a.avatarUrl = await tmdbProfileImageUrl(a.profilePath);
+            } catch {
+              a.avatarUrl = null;
+            }
+          }
+          persist();
+        }
         users = accountsToUsers();
         applyState();
         const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
