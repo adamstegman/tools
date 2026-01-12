@@ -459,15 +459,28 @@
       <form class="setup" id="setupForm">
         <div class="setup-grid">
           <label>
-            TMDB API key
+            TMDB API key / token
             <input
               id="tmdbKey"
               type="password"
               inputmode="text"
               autocomplete="off"
-              placeholder="Paste your TMDB v3 API key"
+              placeholder="Paste TMDB v3 API key (32 chars) or v4 access token"
             />
             <span class="hint">Used only to search TV series + fetch aggregate credits. Saved locally in this browser.</span>
+          </label>
+
+          <label>
+            Credential type
+            <select
+              id="tmdbKeyKind"
+              style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px"
+            >
+              <option value="auto" selected>Auto-detect</option>
+              <option value="v3">v3 API key</option>
+              <option value="v4">v4 access token</option>
+            </select>
+            <span class="hint">Auto is usually correct.</span>
           </label>
 
           <div>
@@ -552,6 +565,7 @@
       const el = {
         setupForm: /** @type {HTMLFormElement} */ (document.getElementById("setupForm")),
         tmdbKey: /** @type {HTMLInputElement} */ (document.getElementById("tmdbKey")),
+        tmdbKeyKind: /** @type {HTMLSelectElement} */ (document.getElementById("tmdbKeyKind")),
         setupStatus: /** @type {HTMLDivElement} */ (document.getElementById("setupStatus")),
         seriesQuery: /** @type {HTMLInputElement} */ (document.getElementById("seriesQuery")),
         seriesPick: /** @type {HTMLSelectElement} */ (document.getElementById("seriesPick")),
@@ -608,16 +622,17 @@
       function loadPrefs() {
         try {
           const raw = localStorage.getItem(LS_KEY) || localStorage.getItem(LEGACY_LS_KEY);
-          if (!raw) return { tmdbKey: "", namesText: "" };
+          if (!raw) return { tmdbKey: "", tmdbKeyKind: "auto", accounts: [], slots: [] };
           const parsed = JSON.parse(raw);
           return {
             tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
+            tmdbKeyKind: typeof parsed.tmdbKeyKind === "string" ? parsed.tmdbKeyKind : "auto",
             accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
             // legacy
             slots: Array.isArray(parsed.slots) ? parsed.slots : [],
           };
         } catch {
-          return { tmdbKey: "", accounts: [], slots: [] };
+          return { tmdbKey: "", tmdbKeyKind: "auto", accounts: [], slots: [] };
         }
       }
 
@@ -777,28 +792,74 @@
         });
       }
 
-      function tmdbUrl(pathname, apiKey, params) {
-        const url = new URL(`https://api.themoviedb.org/3/${pathname.replace(/^\/+/, "")}`);
-        url.searchParams.set("api_key", apiKey);
-        for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, String(v));
-        return url;
+      function safeTrim(s) {
+        return (s ?? "").toString().trim();
       }
 
-      async function tmdbGetJson(url) {
-        const res = await fetch(url.toString(), { method: "GET", mode: "cors" });
-        if (!res.ok) throw new Error(`TMDB error ${res.status}`);
+      /** @param {string} value */
+      function guessKeyKind(value) {
+        const v = safeTrim(value);
+        if (!v) return "auto";
+        // TMDB v3 API key is 32 chars hex-ish, but don't be too strict.
+        if (/^[a-fA-F0-9]{32}$/.test(v)) return "v3";
+        // v4 tokens are long JWT-ish strings.
+        if (v.split(".").length >= 2 || v.length > 60) return "v4";
+        return "v3";
+      }
+
+      /** @returns {{ kind: "v3"|"v4", value: string } | null} */
+      function getCredential() {
+        const value = safeTrim(el.tmdbKey.value);
+        if (!value) return null;
+        const kindRaw = safeTrim(el.tmdbKeyKind.value) || "auto";
+        const kind = kindRaw === "auto" ? guessKeyKind(value) : /** @type {"v3"|"v4"} */ (kindRaw);
+        return { kind, value };
+      }
+
+      async function tmdbFetch(path, params) {
+        const cred = getCredential();
+        if (!cred) throw new Error("Missing TMDB credential. Paste your API key/token first.");
+
+        const url = new URL(`https://api.themoviedb.org/3${path}`);
+        const headers = new Headers();
+        headers.set("Accept", "application/json");
+
+        if (cred.kind === "v3") {
+          url.searchParams.set("api_key", cred.value);
+        } else {
+          headers.set("Authorization", `Bearer ${cred.value}`);
+        }
+
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            if (v === undefined || v === null) continue;
+            const s = String(v);
+            if (!s) continue;
+            url.searchParams.set(k, s);
+          }
+        }
+
+        const res = await fetch(url.toString(), { headers, method: "GET" });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const body = await res.json();
+            detail = safeTrim(body?.status_message) || safeTrim(body?.message) || "";
+          } catch {
+            // ignore
+          }
+          throw new Error(`TMDB request failed (${res.status}). ${detail}`.trim());
+        }
         return await res.json();
       }
 
-      async function tmdbSearchTv(apiKey, query) {
-        const url = tmdbUrl("search/tv", apiKey, { query, include_adult: "false", page: "1" });
-        const data = await tmdbGetJson(url);
+      async function tmdbSearchTv(query) {
+        const data = await tmdbFetch("/search/tv", { query, include_adult: "false", page: "1" });
         return Array.isArray(data?.results) ? data.results : [];
       }
 
-      async function tmdbAggregateCredits(apiKey, tvId) {
-        const url = tmdbUrl(`tv/${encodeURIComponent(tvId)}/aggregate_credits`, apiKey, {});
-        return await tmdbGetJson(url);
+      async function tmdbAggregateCredits(tvId) {
+        return await tmdbFetch(`/tv/${encodeURIComponent(tvId)}/aggregate_credits`, {});
       }
 
       function normalizeKey(s) {
@@ -941,11 +1002,12 @@
       // Restore saved inputs (optional).
       const prefs = loadPrefs();
       if (prefs.tmdbKey) el.tmdbKey.value = prefs.tmdbKey;
+      if (prefs.tmdbKeyKind) el.tmdbKeyKind.value = prefs.tmdbKeyKind;
 
       function persist() {
-        const apiKey = el.tmdbKey.value.trim();
         savePrefs({
-          tmdbKey: apiKey,
+          tmdbKey: safeTrim(el.tmdbKey.value),
+          tmdbKeyKind: safeTrim(el.tmdbKeyKind.value) || "auto",
           accounts,
         });
       }
@@ -971,25 +1033,32 @@
       renderBuilder();
 
       el.tmdbKey.addEventListener("change", () => persist());
+      el.tmdbKeyKind.addEventListener("change", () => persist());
+      el.tmdbKey.addEventListener("input", () => {
+        if (el.tmdbKeyKind.value === "auto") {
+          const guess = guessKeyKind(el.tmdbKey.value);
+          setStatus(el.tmdbKey.value ? `Auto-detect: ${guess.toUpperCase()}` : "");
+        }
+      });
 
       async function loadBuilderCharacters() {
-        const apiKey = el.tmdbKey.value.trim();
-        if (!apiKey || !builder.seriesId) return;
+        const cred = getCredential();
+        if (!cred || !builder.seriesId) return;
         builder.characterOptions = [];
         builder.characterName = "";
         el.characterStatus.textContent = "Loading characters…";
         renderBuilder();
         try {
-          const credits = await tmdbAggregateCredits(apiKey, builder.seriesId);
+          const credits = await tmdbAggregateCredits(builder.seriesId);
           const top = extractTopAggregateCharacters(credits, 25);
           builder.characterOptions = top;
           builder.characterName = "";
           el.characterStatus.textContent = top.length ? `Loaded ${top.length} characters.` : "No characters found.";
           renderBuilder();
-        } catch {
+        } catch (e) {
           builder.characterOptions = [];
           builder.characterName = "";
-          el.characterStatus.textContent = "Failed to load characters.";
+          el.characterStatus.textContent = e instanceof Error ? e.message : "Failed to load characters.";
           renderBuilder();
         }
       }
@@ -999,9 +1068,9 @@
       });
 
       el.searchSeriesBtn.addEventListener("click", async () => {
-        const apiKey = el.tmdbKey.value.trim();
-        if (!apiKey) {
-          setStatus("Add a TMDB API key first.");
+        const cred = getCredential();
+        if (!cred) {
+          setStatus("Add a TMDB credential first.");
           return;
         }
         const q = el.seriesQuery.value.trim();
@@ -1018,12 +1087,12 @@
         builder.characterName = "";
         renderBuilder();
         try {
-          const results = await tmdbSearchTv(apiKey, q);
+          const results = await tmdbSearchTv(q);
           builder.seriesResults = results;
           el.seriesStatus.textContent = results.length ? `Found ${results.length} results.` : "No results.";
           renderBuilder();
-        } catch {
-          el.seriesStatus.textContent = "Search failed.";
+        } catch (e) {
+          el.seriesStatus.textContent = e instanceof Error ? e.message : "Search failed.";
         } finally {
           el.searchSeriesBtn.disabled = false;
         }
