@@ -293,14 +293,6 @@
         overflow: hidden;
       }
 
-      .stats {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
-
       .feed {
         display: grid;
         gap: 14px;
@@ -614,7 +606,7 @@
       }
 
       /** @typedef {{ id:string, name:string, handle:string, avatarSeed:string, avatarUrl?:string|null, hasPersonality:boolean }} User */
-      /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string, likes:number, comments:number, reposts:number }} Post */
+      /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string }} Post */
 
       const LS_KEY = "parasocialNetwork.v3";
       const LEGACY_LS_KEY = "parasocialNetwork.v2";
@@ -688,25 +680,8 @@
       }
 
       function rebuildPosts() {
-        const now = Date.now();
-        /** @type {Post[]} */
-        const out = [];
-        const safeUsers = users.length ? users : [...defaultUsers];
-        for (let i = 0; i < placeholderTexts.length; i++) {
-          const user = safeUsers[i % safeUsers.length];
-          const id = `p-text-${i + 1}`;
-          out.push({
-            id,
-            kind: "text",
-            userId: user.id,
-            createdAt: now - (i * 37 + 9) * 60 * 1000,
-            text: placeholderTexts[i],
-            likes: 20 + ((i * 17) % 400),
-            comments: 1 + ((i * 7) % 38),
-            reposts: (i * 3) % 19,
-          });
-        }
-        posts = out;
+        // Posts are generated asynchronously via generateFeedAsync().
+        posts = posts || [];
       }
 
       function avatarUrl(seed) {
@@ -718,12 +693,61 @@
         return url || avatarUrl(u.avatarSeed);
       }
 
-      function statsHtml(p) {
-        return `
-          <span aria-label="Likes">❤ ${p.likes.toLocaleString()}</span>
-          <span aria-label="Comments">💬 ${p.comments.toLocaleString()}</span>
-          <span aria-label="Reposts">↻ ${p.reposts.toLocaleString()}</span>
-        `;
+      function randInt(min, max) {
+        const a = Math.ceil(min);
+        const b = Math.floor(max);
+        return Math.floor(Math.random() * (b - a + 1)) + a;
+      }
+
+      function pick(arr, fallback = "") {
+        if (!Array.isArray(arr) || !arr.length) return fallback;
+        return arr[Math.floor(Math.random() * arr.length)] ?? fallback;
+      }
+
+      function startOfDay(ts) {
+        const d = new Date(ts);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
+      }
+
+      function generatePostsForUser(userId, count, day0) {
+        /** @type {Post[]} */
+        const out = [];
+        let remaining = Math.max(0, Math.trunc(count));
+        let dayIndex = 0;
+        while (remaining > 0) {
+          const perDay = Math.min(remaining, randInt(1, 4));
+          for (let i = 0; i < perDay; i++) {
+            const createdAt = day0 - dayIndex * 24 * 60 * 60 * 1000 + randInt(8, 22) * 60 * 60 * 1000 + randInt(0, 59) * 60 * 1000;
+            out.push({
+              id: `p-${userId}-${dayIndex}-${i}-${Math.random().toString(16).slice(2, 8)}`,
+              kind: "text",
+              userId,
+              createdAt,
+              text: pick(placeholderTexts, "Placeholder post."),
+            });
+          }
+          remaining -= perDay;
+          dayIndex += 1;
+        }
+        return out;
+      }
+
+      function generatePostsEvenly(totalPosts) {
+        const safeUsers = users.length ? users : [...defaultUsers];
+        const total = clampInt(totalPosts, 1, 500);
+        const per = Math.floor(total / safeUsers.length);
+        const rem = total % safeUsers.length;
+
+        const day0 = startOfDay(Date.now());
+        /** @type {Post[]} */
+        let out = [];
+        for (let i = 0; i < safeUsers.length; i++) {
+          const target = per + (i < rem ? 1 : 0);
+          out = out.concat(generatePostsForUser(safeUsers[i].id, target, day0));
+        }
+        out.sort((a, b) => b.createdAt - a.createdAt);
+        return out.slice(0, total);
       }
 
       function renderTextPost(p) {
@@ -748,7 +772,6 @@
             </div>
             <div class="post-body">
               <p>${escapeText(p.text)}</p>
-              <div class="stats">${statsHtml(p)}</div>
             </div>
           </article>
         `;
@@ -1017,17 +1040,40 @@
           .join("");
       }
 
+      let isGenerating = false;
+
       function render() {
         const noPersonalityCount = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
         el.counts.textContent = `${posts.length} posts • ${users.length} accounts${
           noPersonalityCount ? ` • ${noPersonalityCount} no personality` : ""
         }`;
+        if (isGenerating) {
+          el.textFeed.setAttribute("aria-busy", "true");
+          el.textFeed.innerHTML = `
+            <div class="post" style="padding: 14px">
+              <div style="font-weight: 750; margin-bottom: 6px">Generating feed…</div>
+              <div class="lede">Creating 100 posts with realistic per-day activity.</div>
+            </div>
+          `;
+          return;
+        }
+        el.textFeed.setAttribute("aria-busy", "false");
         el.textFeed.innerHTML = posts.map(renderTextPost).join("");
       }
 
       function applyState() {
         rebuildUsersIndex();
         rebuildPosts();
+        render();
+      }
+
+      async function generateFeedAsync() {
+        isGenerating = true;
+        render();
+        // Let the browser paint the loading state first.
+        await new Promise((r) => setTimeout(r, 0));
+        posts = generatePostsEvenly(100);
+        isGenerating = false;
         render();
       }
 
@@ -1072,6 +1118,7 @@
       // On load, generate the feed from saved data (if any).
       users = accountsToUsers();
       applyState();
+      void generateFeedAsync();
 
       // builder initial state
       renderBuilder();
@@ -1249,6 +1296,7 @@
         }
         users = accountsToUsers();
         applyState();
+        await generateFeedAsync();
         const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
         setStatus(`Generated ${users.length} accounts (${missing ? `${missing} no personality` : "all matched"}).`);
         persist();
