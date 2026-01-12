@@ -1069,6 +1069,10 @@
       accounts = Array.isArray(prefs.accounts) && prefs.accounts.length ? prefs.accounts : migrateLegacySlotsToAccounts();
       renderAccounts();
 
+      // On load, generate the feed from saved data (if any).
+      users = accountsToUsers();
+      applyState();
+
       // builder initial state
       renderBuilder();
 
