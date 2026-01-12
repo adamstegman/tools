@@ -467,23 +467,25 @@
               autocomplete="off"
               placeholder="Paste your TMDB v3 API key"
             />
-            <span class="hint">Used only to look up account names via TMDB’s Person search API. Saved locally in this browser.</span>
+            <span class="hint">Used only to search TV series + fetch aggregate credits. Saved locally in this browser.</span>
           </label>
 
           <label>
-            Account names (one per line)
-            <textarea id="accountNames" placeholder="e.g.\nTom Hanks\nZendaya\nKeanu Reeves"></textarea>
-            <span class="hint">
-              We’ll search TMDB for each name and pick the result with the highest popularity. If no results, the name still
-              appears but is marked “no personality.”
-            </span>
+            Accounts (one per line)
+            <textarea id="accountSlots" placeholder="e.g.\nAccount 1\nAccount 2\nAccount 3"></textarea>
+            <span class="hint">Each line becomes an account slot. For each slot, pick a TV series and type a character name.</span>
           </label>
         </div>
 
         <div class="setup-actions">
-          <button class="btn primary" type="submit" id="loadBtn">Load accounts</button>
+          <div style="display:flex; gap:10px; flex-wrap:wrap">
+            <button class="btn" type="button" id="buildBtn">Build slots</button>
+            <button class="btn primary" type="submit" id="generateBtn">Generate feed</button>
+          </div>
           <div class="setup-status" id="setupStatus" role="status" aria-live="polite"></div>
         </div>
+
+        <div id="slotsWrap" style="display:grid; gap:12px; margin-top: 6px"></div>
       </form>
 
       <p class="lede" style="margin-top: 10px">
@@ -516,9 +518,11 @@
       const el = {
         setupForm: /** @type {HTMLFormElement} */ (document.getElementById("setupForm")),
         tmdbKey: /** @type {HTMLInputElement} */ (document.getElementById("tmdbKey")),
-        accountNames: /** @type {HTMLTextAreaElement} */ (document.getElementById("accountNames")),
+        accountSlots: /** @type {HTMLTextAreaElement} */ (document.getElementById("accountSlots")),
         setupStatus: /** @type {HTMLDivElement} */ (document.getElementById("setupStatus")),
-        loadBtn: /** @type {HTMLButtonElement} */ (document.getElementById("loadBtn")),
+        buildBtn: /** @type {HTMLButtonElement} */ (document.getElementById("buildBtn")),
+        generateBtn: /** @type {HTMLButtonElement} */ (document.getElementById("generateBtn")),
+        slotsWrap: /** @type {HTMLDivElement} */ (document.getElementById("slotsWrap")),
         counts: /** @type {HTMLSpanElement} */ (document.getElementById("counts")),
         textFeed: /** @type {HTMLDivElement} */ (document.getElementById("textFeed")),
       };
@@ -559,7 +563,7 @@
       /** @typedef {{ id:string, name:string, handle:string, avatarSeed:string, hasPersonality:boolean }} User */
       /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string, likes:number, comments:number, reposts:number }} Post */
 
-      const LS_KEY = "parasocialNetwork.v1";
+      const LS_KEY = "parasocialNetwork.v2";
 
       function loadPrefs() {
         try {
@@ -568,10 +572,11 @@
           const parsed = JSON.parse(raw);
           return {
             tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
-            namesText: typeof parsed.namesText === "string" ? parsed.namesText : "",
+            slotsText: typeof parsed.slotsText === "string" ? parsed.slotsText : "",
+            slots: Array.isArray(parsed.slots) ? parsed.slots : [],
           };
         } catch {
-          return { tmdbKey: "", namesText: "" };
+          return { tmdbKey: "", slotsText: "", slots: [] };
         }
       }
 
@@ -674,7 +679,7 @@
                   <div class="name">${escapeText(u.name)}</div>
                   <div class="handle">
                     ${escapeText(u.handle)}
-                    ${noPersonality ? `<span class="pill" title="TMDB lookup returned no results">no personality</span>` : ""}
+                    ${noPersonality ? `<span class="pill" title="No character match found in aggregate credits">no personality</span>` : ""}
                   </div>
                 </div>
               </div>
@@ -731,68 +736,183 @@
         });
       }
 
-      async function tmdbSearchPerson(apiKey, query) {
-        const url = new URL("https://api.themoviedb.org/3/search/person");
+      function tmdbUrl(pathname, apiKey, params) {
+        const url = new URL(`https://api.themoviedb.org/3/${pathname.replace(/^\/+/, "")}`);
         url.searchParams.set("api_key", apiKey);
-        url.searchParams.set("query", query);
-        url.searchParams.set("include_adult", "false");
-        url.searchParams.set("page", "1");
+        for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, String(v));
+        return url;
+      }
+
+      async function tmdbGetJson(url) {
         const res = await fetch(url.toString(), { method: "GET", mode: "cors" });
         if (!res.ok) throw new Error(`TMDB error ${res.status}`);
         return await res.json();
       }
 
-      async function buildUsersFromNames(apiKey, names) {
-        if (!names.length) return [...defaultUsers];
+      async function tmdbSearchTv(apiKey, query) {
+        const url = tmdbUrl("search/tv", apiKey, { query, include_adult: "false", page: "1" });
+        const data = await tmdbGetJson(url);
+        return Array.isArray(data?.results) ? data.results : [];
+      }
 
-        /** @type {{ name:string, hasPersonality:boolean, tmdbId?:number, popularity?:number }[]} */
-        const resolved = [];
+      async function tmdbAggregateCredits(apiKey, tvId) {
+        const url = tmdbUrl(`tv/${encodeURIComponent(tvId)}/aggregate_credits`, apiKey, {});
+        return await tmdbGetJson(url);
+      }
 
-        for (const inputName of names) {
-          if (!apiKey) {
-            resolved.push({ name: inputName, hasPersonality: false });
-            continue;
-          }
-          try {
-            const data = await tmdbSearchPerson(apiKey, inputName);
-            const results = Array.isArray(data?.results) ? data.results : [];
-            if (!results.length) {
-              resolved.push({ name: inputName, hasPersonality: false });
-              continue;
-            }
-            let best = results[0];
-            for (const r of results) {
-              if ((r?.popularity ?? -1) > (best?.popularity ?? -1)) best = r;
-            }
-            const bestName = typeof best?.name === "string" && best.name.trim() ? best.name.trim() : inputName;
-            resolved.push({
-              name: bestName,
-              hasPersonality: true,
-              tmdbId: typeof best?.id === "number" ? best.id : undefined,
-              popularity: typeof best?.popularity === "number" ? best.popularity : undefined,
-            });
-          } catch {
-            resolved.push({ name: inputName, hasPersonality: false });
+      function norm(s) {
+        return String(s || "")
+          .toLowerCase()
+          .normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9\s]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function fuzzyScore(query, candidate) {
+        const q = norm(query);
+        const c = norm(candidate);
+        if (!q || !c) return 0;
+        if (q === c) return 1000;
+        if (c.includes(q) || q.includes(c)) return 800 + Math.min(q.length, c.length);
+        const qTokens = new Set(q.split(" ").filter(Boolean));
+        const cTokens = new Set(c.split(" ").filter(Boolean));
+        if (!qTokens.size || !cTokens.size) return 0;
+        let inter = 0;
+        for (const t of qTokens) if (cTokens.has(t)) inter++;
+        const union = qTokens.size + cTokens.size - inter;
+        const j = union ? inter / union : 0;
+        return Math.round(j * 500);
+      }
+
+      function bestFuzzyMatch(query, candidates) {
+        /** @type {{ value?: string, score: number }} */
+        let best = { value: undefined, score: 0 };
+        for (const v of candidates) {
+          const s = fuzzyScore(query, v);
+          if (s > best.score) best = { value: v, score: s };
+        }
+        return best;
+      }
+
+      function extractAggregateCharacters(credits) {
+        /** @type {string[]} */
+        const out = [];
+        const cast = Array.isArray(credits?.cast) ? credits.cast : [];
+        for (const member of cast) {
+          const roles = Array.isArray(member?.roles) ? member.roles : [];
+          for (const r of roles) {
+            const ch = typeof r?.character === "string" ? r.character.trim() : "";
+            if (ch) out.push(ch);
           }
         }
+        // unique, keep order
+        const seen = new Set();
+        /** @type {string[]} */
+        const uniq = [];
+        for (const c of out) {
+          const k = norm(c);
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          uniq.push(c);
+        }
+        return uniq;
+      }
 
-        const handles = uniquifyHandles(resolved.map((r) => handleFromName(r.name)));
+      /** @typedef {{ slotId:string, label:string, seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterQuery:string, resolvedCharacter:string, hasPersonality:boolean }} Slot */
+      /** @type {Slot[]} */
+      let slots = [];
 
-        /** @type {User[]} */
-        const out = resolved.map((r, i) => {
-          const seed = r.hasPersonality
-            ? `tmdb-${r.tmdbId ?? r.name}`
-            : `no-personality-${r.name}`;
+      function newSlot(label, idx) {
+        return {
+          slotId: `s${idx + 1}`,
+          label,
+          seriesQuery: "",
+          seriesResults: [],
+          seriesId: null,
+          seriesName: "",
+          characterQuery: "",
+          resolvedCharacter: "",
+          hasPersonality: false,
+        };
+      }
+
+      function slotsToUsers() {
+        const picked = slots.filter((s) => s.resolvedCharacter || s.characterQuery || s.label);
+        if (!picked.length) return [...defaultUsers];
+        const names = picked.map((s) => s.resolvedCharacter || s.characterQuery || s.label);
+        const handles = uniquifyHandles(names.map((n) => handleFromName(n)));
+        return picked.map((s, i) => {
+          const name = names[i];
+          const seed = s.seriesId ? `tv-${s.seriesId}-${name}` : `tv-unknown-${name}`;
           return {
             id: `u${i + 1}`,
-            name: r.name,
+            name,
             handle: handles[i],
             avatarSeed: seed,
-            hasPersonality: r.hasPersonality,
+            hasPersonality: Boolean(s.hasPersonality),
           };
         });
+      }
 
-        return out.length ? out : [...defaultUsers];
+      function renderSlots() {
+        const rows = slots
+          .map((s, i) => {
+            const seriesLabel = s.seriesName ? `Selected: ${escapeText(s.seriesName)}` : "No series selected";
+            const resolved = s.resolvedCharacter ? escapeText(s.resolvedCharacter) : "";
+            const badge = s.hasPersonality
+              ? `<span class="pill" title="Character matched from aggregate credits">matched</span>`
+              : `<span class="pill" title="No character match found (or not resolved yet)">no personality</span>`;
+            return `
+              <div class="post" style="padding: 12px" data-slot="${escapeText(s.slotId)}">
+                <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap">
+                  <div style="font-weight: 750">${escapeText(s.label || `Account ${i + 1}`)}</div>
+                  <div class="setup-status">${badge}</div>
+                </div>
+
+                <div class="setup-grid" style="margin-top: 10px">
+                  <label>
+                    TV series search
+                    <input type="text" data-field="seriesQuery" value="${escapeText(s.seriesQuery)}" placeholder="e.g. The Office" />
+                    <span class="hint">${seriesLabel}</span>
+                  </label>
+
+                  <label>
+                    Character name
+                    <input type="text" data-field="characterQuery" value="${escapeText(s.characterQuery)}" placeholder="e.g. Dwight Schrute" />
+                    <span class="hint">${
+                      resolved ? `Resolved: <strong>${resolved}</strong>` : "Resolve to pick the closest match from aggregate credits."
+                    }</span>
+                  </label>
+                </div>
+
+                <div class="setup-actions" style="margin-top: 10px">
+                  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+                    <button class="btn" type="button" data-action="searchSeries">Search series</button>
+                    <select data-field="seriesPick" style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px; min-width: min(520px, 100%)">
+                      <option value="">Choose a result…</option>
+                      ${(s.seriesResults || [])
+                        .slice(0, 10)
+                        .map((r) => {
+                          const id = typeof r?.id === "number" ? String(r.id) : "";
+                          const name = typeof r?.name === "string" ? r.name : "Untitled";
+                          const year =
+                            typeof r?.first_air_date === "string" && r.first_air_date ? ` (${r.first_air_date.slice(0, 4)})` : "";
+                          const sel = s.seriesId && id && Number(id) === s.seriesId ? "selected" : "";
+                          return `<option value="${escapeText(id)}" ${sel}>${escapeText(name + year)}</option>`;
+                        })
+                        .join("")}
+                    </select>
+                    <button class="btn" type="button" data-action="resolveCharacter">Resolve character</button>
+                  </div>
+                  <div class="setup-status" data-field="slotStatus"></div>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+        el.slotsWrap.innerHTML = rows;
       }
 
       function render() {
@@ -810,34 +930,208 @@
       }
 
       // Initial render.
-      applyState();
+      users = [...defaultUsers];
+      rebuildUsersIndex();
+      rebuildPosts();
+      render();
 
       // Restore saved inputs (optional).
       const prefs = loadPrefs();
       if (prefs.tmdbKey) el.tmdbKey.value = prefs.tmdbKey;
-      if (prefs.namesText) el.accountNames.value = prefs.namesText;
+      if (prefs.slotsText) el.accountSlots.value = prefs.slotsText;
 
-      el.setupForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
+      function persist() {
         const apiKey = el.tmdbKey.value.trim();
-        const namesText = el.accountNames.value;
-        const names = parseAccountNames(namesText);
-        savePrefs({ tmdbKey: apiKey, namesText });
+        savePrefs({
+          tmdbKey: apiKey,
+          slotsText: el.accountSlots.value,
+          slots: slots.map((s) => ({
+            label: s.label,
+            seriesQuery: s.seriesQuery,
+            seriesId: s.seriesId,
+            seriesName: s.seriesName,
+            characterQuery: s.characterQuery,
+            resolvedCharacter: s.resolvedCharacter,
+            hasPersonality: s.hasPersonality,
+          })),
+        });
+      }
 
-        el.loadBtn.disabled = true;
-        setStatus(names.length ? "Looking up names on TMDB…" : "Using default accounts…");
-        try {
-          users = await buildUsersFromNames(apiKey, names);
-          applyState();
-          const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
-          setStatus(
-            names.length
-              ? `Loaded ${users.length} accounts (${missing ? `${missing} no personality` : "all have personality"}).`
-              : `Loaded ${users.length} default accounts.`
-          );
-        } finally {
-          el.loadBtn.disabled = false;
+      function buildSlotsFromTextarea() {
+        const labels = parseAccountNames(el.accountSlots.value);
+        slots = labels.length ? labels.map((lab, i) => newSlot(lab, i)) : [];
+        setStatus(slots.length ? `Built ${slots.length} slots.` : "Add account lines, then build slots.");
+        renderSlots();
+        persist();
+      }
+
+      function restoreSlotsFromPrefs() {
+        const saved = Array.isArray(prefs.slots) ? prefs.slots : [];
+        const labels = parseAccountNames(el.accountSlots.value);
+        if (saved.length) {
+          slots = saved.map((s, i) => ({
+            ...newSlot(typeof s?.label === "string" ? s.label : labels[i] || `Account ${i + 1}`, i),
+            seriesQuery: typeof s?.seriesQuery === "string" ? s.seriesQuery : "",
+            seriesId: typeof s?.seriesId === "number" ? s.seriesId : null,
+            seriesName: typeof s?.seriesName === "string" ? s.seriesName : "",
+            characterQuery: typeof s?.characterQuery === "string" ? s.characterQuery : "",
+            resolvedCharacter: typeof s?.resolvedCharacter === "string" ? s.resolvedCharacter : "",
+            hasPersonality: Boolean(s?.hasPersonality),
+          }));
+        } else if (labels.length) {
+          slots = labels.map((lab, i) => newSlot(lab, i));
+        } else {
+          slots = [];
         }
+        renderSlots();
+      }
+
+      restoreSlotsFromPrefs();
+
+      el.buildBtn.addEventListener("click", () => buildSlotsFromTextarea());
+
+      el.tmdbKey.addEventListener("change", () => persist());
+      el.accountSlots.addEventListener("change", () => persist());
+
+      el.slotsWrap.addEventListener("input", (e) => {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        if (!target) return;
+        const slotEl = target.closest("[data-slot]");
+        if (!slotEl) return;
+        const slotId = slotEl.getAttribute("data-slot") || "";
+        const s = slots.find((x) => x.slotId === slotId);
+        if (!s) return;
+        const field = target.getAttribute("data-field") || "";
+        if (field === "seriesQuery" && target instanceof HTMLInputElement) {
+          s.seriesQuery = target.value;
+          s.seriesResults = [];
+          s.seriesId = null;
+          s.seriesName = "";
+          s.hasPersonality = false;
+          s.resolvedCharacter = "";
+        }
+        if (field === "characterQuery" && target instanceof HTMLInputElement) {
+          s.characterQuery = target.value;
+          s.hasPersonality = false;
+          s.resolvedCharacter = "";
+        }
+        persist();
+      });
+
+      el.slotsWrap.addEventListener("change", (e) => {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        if (!target) return;
+        const slotEl = target.closest("[data-slot]");
+        if (!slotEl) return;
+        const slotId = slotEl.getAttribute("data-slot") || "";
+        const s = slots.find((x) => x.slotId === slotId);
+        if (!s) return;
+        const field = target.getAttribute("data-field") || "";
+        if (field === "seriesPick" && target instanceof HTMLSelectElement) {
+          const idStr = target.value;
+          const id = idStr ? Number(idStr) : null;
+          s.seriesId = Number.isFinite(id) ? id : null;
+          const match = (s.seriesResults || []).find((r) => typeof r?.id === "number" && r.id === s.seriesId);
+          s.seriesName = typeof match?.name === "string" ? match.name : s.seriesName;
+          s.hasPersonality = false;
+          s.resolvedCharacter = "";
+          persist();
+        }
+      });
+
+      el.slotsWrap.addEventListener("click", async (e) => {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        if (!target) return;
+        const actionBtn = target.closest("button[data-action]");
+        if (!actionBtn) return;
+        const action = actionBtn.getAttribute("data-action") || "";
+        const slotEl = actionBtn.closest("[data-slot]");
+        if (!slotEl) return;
+        const slotId = slotEl.getAttribute("data-slot") || "";
+        const s = slots.find((x) => x.slotId === slotId);
+        if (!s) return;
+
+        const apiKey = el.tmdbKey.value.trim();
+        const statusEl = slotEl.querySelector("[data-field='slotStatus']");
+        const setSlotStatus = (msg) => {
+          if (statusEl) statusEl.textContent = msg || "";
+        };
+
+        if (action === "searchSeries") {
+          if (!apiKey) {
+            setSlotStatus("Add a TMDB API key first.");
+            return;
+          }
+          const q = s.seriesQuery.trim();
+          if (!q) {
+            setSlotStatus("Type a series search query.");
+            return;
+          }
+          setSlotStatus("Searching…");
+          try {
+            const results = await tmdbSearchTv(apiKey, q);
+            s.seriesResults = results;
+            s.seriesId = null;
+            s.seriesName = "";
+            s.hasPersonality = false;
+            s.resolvedCharacter = "";
+            renderSlots();
+            setSlotStatus(results.length ? `Found ${results.length} results.` : "No results.");
+            persist();
+          } catch {
+            setSlotStatus("Search failed.");
+          }
+          return;
+        }
+
+        if (action === "resolveCharacter") {
+          if (!apiKey) {
+            setSlotStatus("Add a TMDB API key first.");
+            return;
+          }
+          if (!s.seriesId) {
+            setSlotStatus("Choose a series first.");
+            return;
+          }
+          const q = s.characterQuery.trim();
+          if (!q) {
+            setSlotStatus("Type a character name to match.");
+            return;
+          }
+          setSlotStatus("Fetching aggregate credits…");
+          try {
+            const credits = await tmdbAggregateCredits(apiKey, s.seriesId);
+            const chars = extractAggregateCharacters(credits);
+            const best = bestFuzzyMatch(q, chars);
+            if (best.value && best.score >= 250) {
+              s.resolvedCharacter = best.value;
+              s.hasPersonality = true;
+              setSlotStatus(`Matched: ${best.value}`);
+            } else {
+              s.resolvedCharacter = q;
+              s.hasPersonality = false;
+              setSlotStatus("No match found. Using your input (no personality).");
+            }
+            renderSlots();
+            persist();
+          } catch {
+            s.resolvedCharacter = q;
+            s.hasPersonality = false;
+            renderSlots();
+            persist();
+            setSlotStatus("Credits fetch failed. Using your input (no personality).");
+          }
+          return;
+        }
+      });
+
+      el.setupForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        users = slotsToUsers();
+        applyState();
+        const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
+        setStatus(`Generated ${users.length} accounts (${missing ? `${missing} no personality` : "all matched"}).`);
+        persist();
       });
 
       // Optional: deep-link to a post via ?post=p-text-3

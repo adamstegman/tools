@@ -3,7 +3,7 @@
 A single-file HTML “social network” demo with **no login**.
 
 - **Text posts**: a scrolling feed of static placeholder posts (rendered in-browser).
-- **TMDB-powered accounts**: paste a TMDB API key + a list of names to populate the “accounts” in the feed by searching TMDB’s Person API (highest popularity match wins). Names with no results are marked “no personality.”
+- **TMDB-powered accounts**: for each account slot, search for a TV series, pick a result, then type a character name. The app fetches the series’ Aggregate Credits and fuzzy-matches your character name; if it can’t find one, the account is marked “no personality.”
 
 ## Running locally
 
