@@ -470,22 +470,56 @@
             <span class="hint">Used only to search TV series + fetch aggregate credits. Saved locally in this browser.</span>
           </label>
 
-          <label>
-            Accounts (one per line)
-            <textarea id="accountSlots" placeholder="e.g.\nAccount 1\nAccount 2\nAccount 3"></textarea>
-            <span class="hint">Each line becomes an account slot. For each slot, pick a TV series and type a character name.</span>
-          </label>
+          <div>
+            <div style="font-weight: 650; margin-bottom: 6px">Build an account</div>
+            <div class="hint" style="margin-bottom: 10px">
+              Search a TV series, pick one, then pick a character. The <strong>character name</strong> becomes the account name.
+            </div>
+
+            <div class="post" style="padding: 12px">
+              <div class="setup-grid">
+                <label>
+                  TV series search
+                  <input type="text" id="seriesQuery" placeholder="e.g. The Office" />
+                  <span class="hint">Search TMDB for a series.</span>
+                </label>
+
+                <label>
+                  TV series result
+                  <select
+                    id="seriesPick"
+                    style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px"
+                  >
+                    <option value="">Choose a result…</option>
+                  </select>
+                  <span class="hint" id="seriesStatus">—</span>
+                </label>
+
+                <label>
+                  Character
+                  <select
+                    id="characterPick"
+                    style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px"
+                  >
+                    <option value="">Choose a character…</option>
+                  </select>
+                  <span class="hint" id="characterStatus">Pick a series to load characters.</span>
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="setup-actions">
           <div style="display:flex; gap:10px; flex-wrap:wrap">
-            <button class="btn" type="button" id="buildBtn">Build slots</button>
+            <button class="btn" type="button" id="searchSeriesBtn">Search series</button>
+            <button class="btn" type="button" id="addAccountBtn">Add account</button>
             <button class="btn primary" type="submit" id="generateBtn">Generate feed</button>
           </div>
           <div class="setup-status" id="setupStatus" role="status" aria-live="polite"></div>
         </div>
 
-        <div id="slotsWrap" style="display:grid; gap:12px; margin-top: 6px"></div>
+        <div id="accountsWrap" style="display:grid; gap:12px; margin-top: 6px"></div>
       </form>
 
       <p class="lede" style="margin-top: 10px">
@@ -518,11 +552,16 @@
       const el = {
         setupForm: /** @type {HTMLFormElement} */ (document.getElementById("setupForm")),
         tmdbKey: /** @type {HTMLInputElement} */ (document.getElementById("tmdbKey")),
-        accountSlots: /** @type {HTMLTextAreaElement} */ (document.getElementById("accountSlots")),
         setupStatus: /** @type {HTMLDivElement} */ (document.getElementById("setupStatus")),
-        buildBtn: /** @type {HTMLButtonElement} */ (document.getElementById("buildBtn")),
+        seriesQuery: /** @type {HTMLInputElement} */ (document.getElementById("seriesQuery")),
+        seriesPick: /** @type {HTMLSelectElement} */ (document.getElementById("seriesPick")),
+        characterPick: /** @type {HTMLSelectElement} */ (document.getElementById("characterPick")),
+        seriesStatus: /** @type {HTMLSpanElement} */ (document.getElementById("seriesStatus")),
+        characterStatus: /** @type {HTMLSpanElement} */ (document.getElementById("characterStatus")),
+        searchSeriesBtn: /** @type {HTMLButtonElement} */ (document.getElementById("searchSeriesBtn")),
+        addAccountBtn: /** @type {HTMLButtonElement} */ (document.getElementById("addAccountBtn")),
         generateBtn: /** @type {HTMLButtonElement} */ (document.getElementById("generateBtn")),
-        slotsWrap: /** @type {HTMLDivElement} */ (document.getElementById("slotsWrap")),
+        accountsWrap: /** @type {HTMLDivElement} */ (document.getElementById("accountsWrap")),
         counts: /** @type {HTMLSpanElement} */ (document.getElementById("counts")),
         textFeed: /** @type {HTMLDivElement} */ (document.getElementById("textFeed")),
       };
@@ -563,20 +602,22 @@
       /** @typedef {{ id:string, name:string, handle:string, avatarSeed:string, hasPersonality:boolean }} User */
       /** @typedef {{ id:string, kind:"text", userId:string, createdAt:number, text:string, likes:number, comments:number, reposts:number }} Post */
 
-      const LS_KEY = "parasocialNetwork.v2";
+      const LS_KEY = "parasocialNetwork.v3";
+      const LEGACY_LS_KEY = "parasocialNetwork.v2";
 
       function loadPrefs() {
         try {
-          const raw = localStorage.getItem(LS_KEY);
+          const raw = localStorage.getItem(LS_KEY) || localStorage.getItem(LEGACY_LS_KEY);
           if (!raw) return { tmdbKey: "", namesText: "" };
           const parsed = JSON.parse(raw);
           return {
             tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
-            slotsText: typeof parsed.slotsText === "string" ? parsed.slotsText : "",
+            accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+            // legacy
             slots: Array.isArray(parsed.slots) ? parsed.slots : [],
           };
         } catch {
-          return { tmdbKey: "", slotsText: "", slots: [] };
+          return { tmdbKey: "", accounts: [], slots: [] };
         }
       }
 
@@ -793,112 +834,88 @@
         return arr.slice(0, clampInt(limit, 5, 50));
       }
 
-      /** @typedef {{ slotId:string, label:string, seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterOptions:{name:string, episodes:number}[], characterName:string, hasPersonality:boolean }} Slot */
-      /** @type {Slot[]} */
-      let slots = [];
+      /** @typedef {{ seriesId:number|null, seriesName:string, characterName:string, hasPersonality:boolean }} Account */
+      /** @type {Account[]} */
+      let accounts = [];
 
-      function newSlot(label, idx) {
-        return {
-          slotId: `s${idx + 1}`,
-          label,
-          seriesQuery: "",
-          seriesResults: [],
-          seriesId: null,
-          seriesName: "",
-          characterOptions: [],
-          characterName: "",
-          hasPersonality: false,
-        };
-      }
+      /** @typedef {{ seriesQuery:string, seriesResults:any[], seriesId:number|null, seriesName:string, characterOptions:{name:string, episodes:number}[], characterName:string }} Builder */
+      /** @type {Builder} */
+      let builder = {
+        seriesQuery: "",
+        seriesResults: [],
+        seriesId: null,
+        seriesName: "",
+        characterOptions: [],
+        characterName: "",
+      };
 
-      function slotsToUsers() {
-        const picked = slots.filter((s) => s.characterName || s.label);
+      function accountsToUsers() {
+        const picked = accounts.filter((a) => a.characterName);
         if (!picked.length) return [...defaultUsers];
-        const names = picked.map((s) => s.characterName || s.label);
+        const names = picked.map((a) => a.characterName);
         const handles = uniquifyHandles(names.map((n) => handleFromName(n)));
-        return picked.map((s, i) => {
+        return picked.map((a, i) => {
           const name = names[i];
-          const seed = s.seriesId ? `tv-${s.seriesId}-${name}` : `tv-unknown-${name}`;
+          const seed = a.seriesId ? `tv-${a.seriesId}-${name}` : `tv-unknown-${name}`;
           return {
             id: `u${i + 1}`,
             name,
             handle: handles[i],
             avatarSeed: seed,
-            hasPersonality: Boolean(s.hasPersonality),
+            hasPersonality: Boolean(a.hasPersonality),
           };
         });
       }
 
-      function renderSlots() {
-        const rows = slots
-          .map((s, i) => {
-            const seriesLabel = s.seriesName ? `Selected: ${escapeText(s.seriesName)}` : "No series selected";
-            const badge = s.hasPersonality
-              ? `<span class="pill" title="Character matched from aggregate credits">matched</span>`
-              : `<span class="pill" title="Pick a character to give personality">no personality</span>`;
+      function renderBuilder() {
+        el.seriesQuery.value = builder.seriesQuery || "";
+
+        // series results
+        const options = [
+          `<option value="">Choose a result…</option>`,
+          ...builder.seriesResults.slice(0, 12).map((r) => {
+            const id = typeof r?.id === "number" ? String(r.id) : "";
+            const name = typeof r?.name === "string" ? r.name : "Untitled";
+            const year = typeof r?.first_air_date === "string" && r.first_air_date ? ` (${r.first_air_date.slice(0, 4)})` : "";
+            const sel = builder.seriesId && id && Number(id) === builder.seriesId ? "selected" : "";
+            return `<option value="${escapeText(id)}" ${sel}>${escapeText(name + year)}</option>`;
+          }),
+        ].join("");
+        el.seriesPick.innerHTML = options;
+
+        // character options
+        const charOptions = [
+          `<option value="">Choose a character…</option>`,
+          ...builder.characterOptions.slice(0, 25).map((c) => {
+            const label = c.episodes ? `${c.name} (${c.episodes} eps)` : c.name;
+            const sel = builder.characterName && c.name === builder.characterName ? "selected" : "";
+            return `<option value="${escapeText(c.name)}" ${sel}>${escapeText(label)}</option>`;
+          }),
+        ].join("");
+        el.characterPick.innerHTML = charOptions;
+
+        el.addAccountBtn.disabled = !(builder.seriesId && builder.characterName);
+      }
+
+      function renderAccounts() {
+        el.accountsWrap.innerHTML = accounts
+          .map((a, idx) => {
             return `
-              <div class="post" style="padding: 12px" data-slot="${escapeText(s.slotId)}">
-                <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap">
-                  <div style="font-weight: 750">${escapeText(s.label || `Account ${i + 1}`)}</div>
-                  <div class="setup-status">${badge}</div>
-                </div>
-
-                <div class="setup-grid" style="margin-top: 10px">
-                  <label>
-                    TV series search
-                    <input type="text" data-field="seriesQuery" value="${escapeText(s.seriesQuery)}" placeholder="e.g. The Office" />
-                    <span class="hint">${seriesLabel}</span>
-                  </label>
-
-                  <label>
-                    Character
-                    <select
-                      data-field="characterPick"
-                      style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px"
-                    >
-                      <option value="">Choose a character…</option>
-                      ${(s.characterOptions || [])
-                        .slice(0, 25)
-                        .map((c) => {
-                          const sel = s.characterName && c.name === s.characterName ? "selected" : "";
-                          const label = c.episodes ? `${c.name} (${c.episodes} eps)` : c.name;
-                          return `<option value="${escapeText(c.name)}" ${sel}>${escapeText(label)}</option>`;
-                        })
-                        .join("")}
-                    </select>
-                    <span class="hint">${
-                      s.seriesId
-                        ? (s.characterOptions?.length ? "Loaded from aggregate credits." : "Choose a series to load characters.")
-                        : "Choose a series to load characters."
-                    }</span>
-                  </label>
-                </div>
-
-                <div class="setup-actions" style="margin-top: 10px">
-                  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
-                    <button class="btn" type="button" data-action="searchSeries">Search series</button>
-                    <select data-field="seriesPick" style="min-height:44px; border-radius: 12px; border: 1px solid var(--border); background: Canvas; color: CanvasText; padding: 8px 10px; min-width: min(520px, 100%)">
-                      <option value="">Choose a result…</option>
-                      ${(s.seriesResults || [])
-                        .slice(0, 10)
-                        .map((r) => {
-                          const id = typeof r?.id === "number" ? String(r.id) : "";
-                          const name = typeof r?.name === "string" ? r.name : "Untitled";
-                          const year =
-                            typeof r?.first_air_date === "string" && r.first_air_date ? ` (${r.first_air_date.slice(0, 4)})` : "";
-                          const sel = s.seriesId && id && Number(id) === s.seriesId ? "selected" : "";
-                          return `<option value="${escapeText(id)}" ${sel}>${escapeText(name + year)}</option>`;
-                        })
-                        .join("")}
-                    </select>
+              <div class="post" style="padding: 12px" data-account-idx="${idx}">
+                <div style="display:flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline">
+                  <div style="font-weight: 750">${escapeText(a.characterName || "Unknown")}</div>
+                  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+                    <span class="pill">${a.hasPersonality ? "matched" : "no personality"}</span>
+                    <button class="btn" type="button" data-action="removeAccount">Remove</button>
                   </div>
-                  <div class="setup-status" data-field="slotStatus"></div>
+                </div>
+                <div class="lede" style="margin-top: 6px; font-size: 0.95rem">
+                  from <strong>${escapeText(a.seriesName || "Unknown series")}</strong>
                 </div>
               </div>
             `;
           })
           .join("");
-        el.slotsWrap.innerHTML = rows;
       }
 
       function render() {
@@ -924,198 +941,155 @@
       // Restore saved inputs (optional).
       const prefs = loadPrefs();
       if (prefs.tmdbKey) el.tmdbKey.value = prefs.tmdbKey;
-      if (prefs.slotsText) el.accountSlots.value = prefs.slotsText;
 
       function persist() {
         const apiKey = el.tmdbKey.value.trim();
         savePrefs({
           tmdbKey: apiKey,
-          slotsText: el.accountSlots.value,
-          slots: slots.map((s) => ({
-            label: s.label,
-            seriesQuery: s.seriesQuery,
-            seriesId: s.seriesId,
-            seriesName: s.seriesName,
-            characterOptions: s.characterOptions,
-            characterName: s.characterName,
-            hasPersonality: s.hasPersonality,
-          })),
+          accounts,
         });
       }
 
-      function buildSlotsFromTextarea() {
-        const labels = parseAccountNames(el.accountSlots.value);
-        slots = labels.length ? labels.map((lab, i) => newSlot(lab, i)) : [];
-        setStatus(slots.length ? `Built ${slots.length} slots.` : "Add account lines, then build slots.");
-        renderSlots();
-        persist();
-      }
-
-      function restoreSlotsFromPrefs() {
-        const saved = Array.isArray(prefs.slots) ? prefs.slots : [];
-        const labels = parseAccountNames(el.accountSlots.value);
-        if (saved.length) {
-          slots = saved.map((s, i) => ({
-            ...newSlot(typeof s?.label === "string" ? s.label : labels[i] || `Account ${i + 1}`, i),
-            seriesQuery: typeof s?.seriesQuery === "string" ? s.seriesQuery : "",
+      function migrateLegacySlotsToAccounts() {
+        const legacy = Array.isArray(prefs.slots) ? prefs.slots : [];
+        if (!legacy.length) return [];
+        return legacy
+          .map((s) => ({
             seriesId: typeof s?.seriesId === "number" ? s.seriesId : null,
             seriesName: typeof s?.seriesName === "string" ? s.seriesName : "",
-            characterOptions: Array.isArray(s?.characterOptions) ? s.characterOptions : [],
             characterName: typeof s?.characterName === "string" ? s.characterName : "",
-            hasPersonality: Boolean(s?.hasPersonality),
-          }));
-        } else if (labels.length) {
-          slots = labels.map((lab, i) => newSlot(lab, i));
-        } else {
-          slots = [];
-        }
-        renderSlots();
+            hasPersonality: Boolean(s?.hasPersonality) && Boolean(s?.characterName),
+          }))
+          .filter((a) => a.characterName);
       }
 
-      restoreSlotsFromPrefs();
+      // restore accounts (v3) or migrate (v2)
+      accounts = Array.isArray(prefs.accounts) && prefs.accounts.length ? prefs.accounts : migrateLegacySlotsToAccounts();
+      renderAccounts();
 
-      el.buildBtn.addEventListener("click", () => buildSlotsFromTextarea());
+      // builder initial state
+      renderBuilder();
 
       el.tmdbKey.addEventListener("change", () => persist());
-      el.accountSlots.addEventListener("change", () => persist());
 
-      async function loadCharactersForSlot(slotId) {
-        const s = slots.find((x) => x.slotId === slotId);
-        if (!s) return;
+      async function loadBuilderCharacters() {
         const apiKey = el.tmdbKey.value.trim();
-        if (!apiKey || !s.seriesId) return;
-
-        // Show immediate feedback.
-        s.characterOptions = [];
-        s.characterName = "";
-        s.hasPersonality = false;
-        renderSlots();
-
-        const slotEl = el.slotsWrap.querySelector(`[data-slot="${CSS.escape(slotId)}"]`);
-        const statusEl = slotEl?.querySelector("[data-field='slotStatus']");
-        const setSlotStatus = (msg) => {
-          if (statusEl) statusEl.textContent = msg || "";
-        };
-        setSlotStatus("Loading characters…");
-
+        if (!apiKey || !builder.seriesId) return;
+        builder.characterOptions = [];
+        builder.characterName = "";
+        el.characterStatus.textContent = "Loading characters…";
+        renderBuilder();
         try {
-          const credits = await tmdbAggregateCredits(apiKey, s.seriesId);
+          const credits = await tmdbAggregateCredits(apiKey, builder.seriesId);
           const top = extractTopAggregateCharacters(credits, 25);
-          s.characterOptions = top;
-          s.characterName = top[0]?.name ? top[0].name : "";
-          s.hasPersonality = Boolean(s.characterName);
-          renderSlots();
-          persist();
-          setSlotStatus(top.length ? `Loaded ${top.length} characters.` : "No characters found.");
+          builder.characterOptions = top;
+          builder.characterName = "";
+          el.characterStatus.textContent = top.length ? `Loaded ${top.length} characters.` : "No characters found.";
+          renderBuilder();
         } catch {
-          s.characterOptions = [];
-          s.characterName = "";
-          s.hasPersonality = false;
-          renderSlots();
-          persist();
-          setSlotStatus("Failed to load characters.");
+          builder.characterOptions = [];
+          builder.characterName = "";
+          el.characterStatus.textContent = "Failed to load characters.";
+          renderBuilder();
         }
       }
 
-      el.slotsWrap.addEventListener("input", (e) => {
-        const target = e.target instanceof HTMLElement ? e.target : null;
-        if (!target) return;
-        const slotEl = target.closest("[data-slot]");
-        if (!slotEl) return;
-        const slotId = slotEl.getAttribute("data-slot") || "";
-        const s = slots.find((x) => x.slotId === slotId);
-        if (!s) return;
-        const field = target.getAttribute("data-field") || "";
-        if (field === "seriesQuery" && target instanceof HTMLInputElement) {
-          s.seriesQuery = target.value;
-          s.seriesResults = [];
-          s.seriesId = null;
-          s.seriesName = "";
-          s.characterOptions = [];
-          s.characterName = "";
-          s.hasPersonality = false;
-        }
-        persist();
+      el.seriesQuery.addEventListener("input", () => {
+        builder.seriesQuery = el.seriesQuery.value;
       });
 
-      el.slotsWrap.addEventListener("change", (e) => {
-        const target = e.target instanceof HTMLElement ? e.target : null;
-        if (!target) return;
-        const slotEl = target.closest("[data-slot]");
-        if (!slotEl) return;
-        const slotId = slotEl.getAttribute("data-slot") || "";
-        const s = slots.find((x) => x.slotId === slotId);
-        if (!s) return;
-        const field = target.getAttribute("data-field") || "";
-        if (field === "seriesPick" && target instanceof HTMLSelectElement) {
-          const idStr = target.value;
-          const id = idStr ? Number(idStr) : null;
-          s.seriesId = Number.isFinite(id) ? id : null;
-          const match = (s.seriesResults || []).find((r) => typeof r?.id === "number" && r.id === s.seriesId);
-          s.seriesName = typeof match?.name === "string" ? match.name : s.seriesName;
-          s.characterOptions = [];
-          s.characterName = "";
-          s.hasPersonality = false;
-          persist();
-          if (s.seriesId) void loadCharactersForSlot(s.slotId);
-        }
-        if (field === "characterPick" && target instanceof HTMLSelectElement) {
-          s.characterName = target.value || "";
-          s.hasPersonality = Boolean(s.characterName);
-          persist();
-        }
-      });
-
-      el.slotsWrap.addEventListener("click", async (e) => {
-        const target = e.target instanceof HTMLElement ? e.target : null;
-        if (!target) return;
-        const actionBtn = target.closest("button[data-action]");
-        if (!actionBtn) return;
-        const action = actionBtn.getAttribute("data-action") || "";
-        const slotEl = actionBtn.closest("[data-slot]");
-        if (!slotEl) return;
-        const slotId = slotEl.getAttribute("data-slot") || "";
-        const s = slots.find((x) => x.slotId === slotId);
-        if (!s) return;
-
+      el.searchSeriesBtn.addEventListener("click", async () => {
         const apiKey = el.tmdbKey.value.trim();
-        const statusEl = slotEl.querySelector("[data-field='slotStatus']");
-        const setSlotStatus = (msg) => {
-          if (statusEl) statusEl.textContent = msg || "";
-        };
-
-        if (action === "searchSeries") {
-          if (!apiKey) {
-            setSlotStatus("Add a TMDB API key first.");
-            return;
-          }
-          const q = s.seriesQuery.trim();
-          if (!q) {
-            setSlotStatus("Type a series search query.");
-            return;
-          }
-          setSlotStatus("Searching…");
-          try {
-            const results = await tmdbSearchTv(apiKey, q);
-            s.seriesResults = results;
-            s.seriesId = null;
-            s.seriesName = "";
-            s.characterOptions = [];
-            s.characterName = "";
-            s.hasPersonality = false;
-            renderSlots();
-            setSlotStatus(results.length ? `Found ${results.length} results.` : "No results.");
-            persist();
-          } catch {
-            setSlotStatus("Search failed.");
-          }
+        if (!apiKey) {
+          setStatus("Add a TMDB API key first.");
           return;
         }
+        const q = el.seriesQuery.value.trim();
+        if (!q) {
+          setStatus("Type a series search query.");
+          return;
+        }
+        el.searchSeriesBtn.disabled = true;
+        el.seriesStatus.textContent = "Searching…";
+        builder.seriesResults = [];
+        builder.seriesId = null;
+        builder.seriesName = "";
+        builder.characterOptions = [];
+        builder.characterName = "";
+        renderBuilder();
+        try {
+          const results = await tmdbSearchTv(apiKey, q);
+          builder.seriesResults = results;
+          el.seriesStatus.textContent = results.length ? `Found ${results.length} results.` : "No results.";
+          renderBuilder();
+        } catch {
+          el.seriesStatus.textContent = "Search failed.";
+        } finally {
+          el.searchSeriesBtn.disabled = false;
+        }
+      });
+
+      el.seriesPick.addEventListener("change", async () => {
+        const idStr = el.seriesPick.value;
+        const id = idStr ? Number(idStr) : null;
+        builder.seriesId = Number.isFinite(id) ? id : null;
+        const match = builder.seriesResults.find((r) => typeof r?.id === "number" && r.id === builder.seriesId);
+        builder.seriesName = typeof match?.name === "string" ? match.name : "";
+        builder.characterOptions = [];
+        builder.characterName = "";
+        el.characterStatus.textContent = builder.seriesId ? "Loading characters…" : "Pick a series to load characters.";
+        renderBuilder();
+        if (builder.seriesId) await loadBuilderCharacters();
+      });
+
+      el.characterPick.addEventListener("change", () => {
+        builder.characterName = el.characterPick.value || "";
+        el.addAccountBtn.disabled = !(builder.seriesId && builder.characterName);
+      });
+
+      el.addAccountBtn.addEventListener("click", () => {
+        if (!builder.seriesId || !builder.characterName) return;
+        accounts.push({
+          seriesId: builder.seriesId,
+          seriesName: builder.seriesName,
+          characterName: builder.characterName,
+          hasPersonality: true,
+        });
+        persist();
+        renderAccounts();
+        setStatus(`Added: ${builder.characterName}`);
+
+        // reset builder for next account
+        builder.seriesResults = [];
+        builder.seriesId = null;
+        builder.seriesName = "";
+        builder.characterOptions = [];
+        builder.characterName = "";
+        el.seriesPick.innerHTML = `<option value="">Choose a result…</option>`;
+        el.characterPick.innerHTML = `<option value="">Choose a character…</option>`;
+        el.seriesStatus.textContent = "—";
+        el.characterStatus.textContent = "Pick a series to load characters.";
+        renderBuilder();
+      });
+
+      el.accountsWrap.addEventListener("click", (e) => {
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        if (!target) return;
+        const btn = target.closest("button[data-action='removeAccount']");
+        if (!btn) return;
+        const card = btn.closest("[data-account-idx]");
+        if (!card) return;
+        const idx = Number(card.getAttribute("data-account-idx"));
+        if (!Number.isFinite(idx) || idx < 0 || idx >= accounts.length) return;
+        const removed = accounts.splice(idx, 1);
+        persist();
+        renderAccounts();
+        if (removed[0]?.characterName) setStatus(`Removed: ${removed[0].characterName}`);
       });
 
       el.setupForm.addEventListener("submit", (e) => {
         e.preventDefault();
-        users = slotsToUsers();
+        users = accountsToUsers();
         applyState();
         const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
         setStatus(`Generated ${users.length} accounts (${missing ? `${missing} no personality` : "all matched"}).`);

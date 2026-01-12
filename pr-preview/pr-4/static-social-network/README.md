@@ -3,7 +3,7 @@
 A single-file HTML “social network” demo with **no login**.
 
 - **Text posts**: a scrolling feed of static placeholder posts (rendered in-browser).
-- **TMDB-powered accounts**: for each account slot, search for a TV series, pick a result, then pick a character from the series’ Aggregate Credits. If you don’t pick one, the account is marked “no personality.”
+- **TMDB-powered accounts**: add accounts one-by-one by searching for a TV series, picking a result, then picking a character from the series’ Aggregate Credits. The account name is the character name.
 
 ## Running locally
 
