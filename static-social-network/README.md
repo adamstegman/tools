@@ -2,8 +2,8 @@
 
 A single-file HTML “social network” demo with **no login**.
 
-- **Photos**: opens on a grid of placeholder photo posts.
-- **Videos**: switch via the navbar to a scrolling feed of **autoplaying** placeholder videos (muted, loops, plays inline).
+- **Text posts**: a scrolling feed of static placeholder posts (rendered in-browser).
+- **TMDB-powered accounts**: add accounts one-by-one by searching for a TV series, picking a result, then picking a character from the series’ Aggregate Credits. Paste a **TMDB v3 API key** or **v4 access token**; the account name is the character name (and avatars use TMDB `profile_path` when available).
 
 ## Running locally
 
@@ -18,5 +18,5 @@ Then visit `http://localhost:8000/static-social-network/`.
 ## Notes
 
 - The “other users” and their posts are **static placeholder content** rendered in-browser.
-- Placeholder images use `picsum.photos`. Placeholder video uses a public MDN sample MP4.
+- Avatars use `picsum.photos` (placeholder).
 
