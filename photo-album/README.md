@@ -10,6 +10,7 @@ A browser-based photo album manager that lets you create multiple albums, upload
 - **Reordering**: Drag-and-drop photos to reorder them, or use up/down arrow buttons
 - **Photo Removal**: Delete individual photos from albums
 - **Album Management**: Create and delete entire albums
+- **Export/Import**: Export albums as JSON files to share or backup, import them on other devices
 - **Local Storage**: All photos stored locally in your browser using IndexedDB (no server required)
 - **Privacy-First**: No data sent to any server - everything stays in your browser
 - **Responsive Design**: Works on desktop and mobile devices
@@ -23,8 +24,10 @@ A browser-based photo album manager that lets you create multiple albums, upload
 4. Upload photos by clicking the upload zone or dragging files onto it
 5. Reorder photos by dragging them or using the ↑/↓ buttons
 6. Delete photos using the × button that appears when hovering over a photo
-7. Return to the album list with the "Back to Albums" button
-8. Delete entire albums with the "Delete Album" button
+7. Export an album to share or backup using the "Export Album" button (downloads a JSON file)
+8. Import an album on another device/browser using the "Import Album" button
+9. Return to the album list with the "Back to Albums" button
+10. Delete entire albums with the "Delete Album" button
 
 ## Technical Details
 
