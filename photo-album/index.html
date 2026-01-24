@@ -817,7 +817,18 @@
 
         el.photoGallery.innerHTML = photos
           .map((photo) => {
-            if (!photo.blob || !(photo.blob instanceof Blob)) {
+            const blobCheck = {
+              exists: !!photo.blob,
+              isBlob: photo.blob instanceof Blob,
+              type: photo.blob?.constructor?.name,
+              size: photo.blob?.size,
+              hasSlice: typeof photo.blob?.slice === 'function',
+              toString: Object.prototype.toString.call(photo.blob)
+            };
+            console.log(`Rendering photo ${photo.filename}:`, blobCheck);
+
+            // Check if it's blob-like (has size and slice method)
+            if (!photo.blob || !photo.blob.size || typeof photo.blob.slice !== 'function') {
               console.error(`Photo ${photo.id} has invalid blob:`, photo.blob);
               return "";
             }
