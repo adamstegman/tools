@@ -1008,7 +1008,11 @@
           let order = photos.length;
           let addedCount = 0;
 
-          for (const file of files) {
+          // Convert FileList to Array for proper iteration
+          const fileArray = Array.from(files);
+          console.log(`Converted to array with ${fileArray.length} items`);
+
+          for (const file of fileArray) {
             console.log(`Processing file: ${file.name}, type: ${file.type}`);
 
             // Check if it's an image by MIME type or file extension
