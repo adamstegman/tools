@@ -920,18 +920,23 @@
       async function handleDragEnd(e) {
         e.currentTarget.classList.remove("dragging");
 
+        console.log("Drag ended, updating order...");
+
         // Update order in database
         const photoItems = el.photoGallery.querySelectorAll(".photo-item");
         const updates = [];
 
         photoItems.forEach((item, index) => {
+          console.log(`Updating photo ${item.dataset.photoId} to order ${index}`);
           updates.push(updatePhotoOrder(item.dataset.photoId, index));
         });
 
         await Promise.all(updates);
+        console.log("Order updates complete");
         draggedElement = null;
 
         // Re-render to show updated order
+        console.log("Re-rendering photos after drag...");
         await renderPhotos();
         await refreshCurrentAlbum();
       }
