@@ -673,11 +673,25 @@
           getRequest.onsuccess = () => {
             const photo = getRequest.result;
             if (photo) {
+              console.log(`Updating order for ${photo.filename}: ${photo.order} -> ${order}`);
+
+              // Recreate the blob to ensure it's not corrupted during IndexedDB put
+              const freshBlob = new Blob([photo.blob], { type: photo.blob.type });
+
               photo.order = order;
+              photo.blob = freshBlob;
+
               const putRequest = store.put(photo);
-              putRequest.onsuccess = () => resolve();
-              putRequest.onerror = () => reject(putRequest.error);
+              putRequest.onsuccess = () => {
+                console.log(`Successfully updated order for ${photo.filename}`);
+                resolve();
+              };
+              putRequest.onerror = () => {
+                console.error(`Failed to update order for ${photo.filename}:`, putRequest.error);
+                reject(putRequest.error);
+              };
             } else {
+              console.warn(`Photo ${id} not found in database`);
               resolve();
             }
           };
