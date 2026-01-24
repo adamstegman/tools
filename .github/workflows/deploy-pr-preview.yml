@@ -32,9 +32,9 @@ jobs:
           # Copy index.html
           cp index.html site/
 
-          # Copy all tool directories (directories containing index.html, excluding hidden dirs)
+          # Copy all tool directories (directories containing index.html, excluding hidden dirs and site/)
           for dir in */; do
-            if [ -f "${dir}index.html" ]; then
+            if [ -f "${dir}index.html" ] && [ "$dir" != "site/" ]; then
               cp -R "$dir" site/
             fi
           done
