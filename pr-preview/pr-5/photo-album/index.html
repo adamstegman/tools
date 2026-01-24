@@ -365,10 +365,21 @@
             </div>
             <div class="actions" style="margin: 0">
               <button id="back-btn" class="secondary">← Back to Albums</button>
+              <button id="export-album-btn" class="secondary">Export Album</button>
+              <button id="import-album-btn" class="secondary">Import Album</button>
               <button id="delete-album-btn" class="danger">Delete Album</button>
             </div>
           </div>
         </div>
+
+        <!-- Hidden file input for import -->
+        <input
+          type="file"
+          id="import-input"
+          accept=".json,application/json"
+          style="display: none"
+          aria-label="Import album file"
+        />
 
         <div
           class="upload-zone"
@@ -430,6 +441,9 @@
         currentAlbumName: document.getElementById("current-album-name"),
         photoCount: document.getElementById("photo-count"),
         backBtn: document.getElementById("back-btn"),
+        exportAlbumBtn: document.getElementById("export-album-btn"),
+        importAlbumBtn: document.getElementById("import-album-btn"),
+        importInput: document.getElementById("import-input"),
         deleteAlbumBtn: document.getElementById("delete-album-btn"),
         uploadZone: document.getElementById("upload-zone"),
         photoInput: document.getElementById("photo-input"),
@@ -697,6 +711,128 @@
           };
           getRequest.onerror = () => reject(getRequest.error);
         });
+      }
+
+      /**
+       * Export album to JSON file
+       * @param {string} albumName
+       * @returns {Promise<void>}
+       */
+      async function exportAlbum(albumName) {
+        const album = await getAlbum(albumName);
+        if (!album) {
+          showStatus("Album not found", "bad");
+          return;
+        }
+
+        const photos = await getPhotosForAlbum(albumName);
+
+        // Convert blobs to base64 data URLs for export
+        const photosData = await Promise.all(
+          photos.map(async (photo) => {
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                resolve({
+                  filename: photo.filename,
+                  order: photo.order,
+                  dataURL: reader.result,
+                  createdAt: photo.createdAt,
+                });
+              };
+              reader.readAsDataURL(photo.blob);
+            });
+          })
+        );
+
+        const exportData = {
+          version: 1,
+          album: {
+            name: album.name,
+            createdAt: album.createdAt,
+          },
+          photos: photosData,
+          exportedAt: Date.now(),
+        };
+
+        // Create and download JSON file
+        const json = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${albumName.replace(/[^a-z0-9]/gi, "_")}_album.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showStatus(`Album "${albumName}" exported`, "ok");
+      }
+
+      /**
+       * Import album from JSON file
+       * @param {File} file
+       * @returns {Promise<void>}
+       */
+      async function importAlbum(file) {
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+
+          if (!data.version || !data.album || !data.photos) {
+            showStatus("Invalid album file format", "bad");
+            return;
+          }
+
+          // Check if album already exists
+          const existing = await getAlbum(data.album.name);
+          if (existing) {
+            const shouldOverwrite = confirm(
+              `An album named "${data.album.name}" already exists. Do you want to overwrite it?`
+            );
+            if (shouldOverwrite) {
+              await deleteAlbum(data.album.name);
+            } else {
+              return;
+            }
+          }
+
+          // Create album
+          await createAlbum(data.album.name);
+
+          // Import photos
+          for (let i = 0; i < data.photos.length; i++) {
+            const photoData = data.photos[i];
+
+            // Convert data URL back to blob
+            const response = await fetch(photoData.dataURL);
+            const blob = await response.blob();
+
+            // Create a File-like object
+            const file = new File([blob], photoData.filename, {
+              type: blob.type,
+            });
+
+            await addPhoto(data.album.name, file, photoData.order);
+          }
+
+          showStatus(
+            `Album "${data.album.name}" imported with ${data.photos.length} photo(s)`,
+            "ok"
+          );
+
+          // Refresh album list
+          await renderAlbumList();
+
+          // If we're in album view, open the imported album
+          if (state.currentAlbum) {
+            await openAlbum(data.album.name);
+          }
+        } catch (error) {
+          console.error("Error importing album:", error);
+          showStatus(`Failed to import album: ${error.message}`, "bad");
+        }
       }
 
       /**
@@ -1139,6 +1275,25 @@
       // Back to albums
       el.backBtn.addEventListener("click", () => {
         showAlbumSelection();
+      });
+
+      // Export album
+      el.exportAlbumBtn.addEventListener("click", async () => {
+        if (!state.currentAlbum) return;
+        await exportAlbum(state.currentAlbum.name);
+      });
+
+      // Import album
+      el.importAlbumBtn.addEventListener("click", () => {
+        el.importInput.click();
+      });
+
+      el.importInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          await importAlbum(file);
+        }
+        e.target.value = ""; // Reset input
       });
 
       // Delete album
