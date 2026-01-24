@@ -817,7 +817,18 @@
 
         el.photoGallery.innerHTML = photos
           .map((photo) => {
-            if (!photo.blob || !(photo.blob instanceof Blob)) {
+            const blobCheck = {
+              exists: !!photo.blob,
+              isBlob: photo.blob instanceof Blob,
+              type: photo.blob?.constructor?.name,
+              size: photo.blob?.size,
+              hasSlice: typeof photo.blob?.slice === 'function',
+              toString: Object.prototype.toString.call(photo.blob)
+            };
+            console.log(`Rendering photo ${photo.filename}:`, blobCheck);
+
+            // Check if it's blob-like (has size and slice method)
+            if (!photo.blob || !photo.blob.size || typeof photo.blob.slice !== 'function') {
               console.error(`Photo ${photo.id} has invalid blob:`, photo.blob);
               return "";
             }
@@ -920,18 +931,23 @@
       async function handleDragEnd(e) {
         e.currentTarget.classList.remove("dragging");
 
+        console.log("Drag ended, updating order...");
+
         // Update order in database
         const photoItems = el.photoGallery.querySelectorAll(".photo-item");
         const updates = [];
 
         photoItems.forEach((item, index) => {
+          console.log(`Updating photo ${item.dataset.photoId} to order ${index}`);
           updates.push(updatePhotoOrder(item.dataset.photoId, index));
         });
 
         await Promise.all(updates);
+        console.log("Order updates complete");
         draggedElement = null;
 
         // Re-render to show updated order
+        console.log("Re-rendering photos after drag...");
         await renderPhotos();
         await refreshCurrentAlbum();
       }
