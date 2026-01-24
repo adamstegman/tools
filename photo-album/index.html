@@ -739,15 +739,22 @@
         // Sort by creation date (newest first)
         albums.sort((a, b) => b.createdAt - a.createdAt);
 
-        el.albumList.innerHTML = albums
+        // Get photo counts for each album
+        const albumsWithCounts = await Promise.all(
+          albums.map(async (album) => {
+            const photos = await getPhotosForAlbum(album.name);
+            return { ...album, photoCount: photos.length };
+          })
+        );
+
+        el.albumList.innerHTML = albumsWithCounts
           .map((album) => {
-            const photoCount = album.photoIds.length;
-            const photoText = photoCount === 1 ? "photo" : "photos";
+            const photoText = album.photoCount === 1 ? "photo" : "photos";
             return `
             <li class="album-item" data-album-name="${escapeHtml(album.name)}">
               <div class="album-info">
                 <div class="album-name">${escapeHtml(album.name)}</div>
-                <div class="album-count">${photoCount} ${photoText}</div>
+                <div class="album-count">${album.photoCount} ${photoText}</div>
               </div>
               <button class="secondary">Open →</button>
             </li>
