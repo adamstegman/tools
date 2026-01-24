@@ -991,32 +991,62 @@
        * @param {FileList} files
        */
       async function handlePhotoUpload(files) {
-        if (!state.currentAlbum) return;
-        if (files.length === 0) return;
+        if (!state.currentAlbum) {
+          console.error("No current album selected");
+          showStatus("Please select an album first", "bad");
+          return;
+        }
+        if (files.length === 0) {
+          console.log("No files selected");
+          return;
+        }
+
+        console.log(`Processing ${files.length} file(s)`);
 
         try {
           const photos = await getPhotosForAlbum(state.currentAlbum.name);
           let order = photos.length;
+          let addedCount = 0;
 
           for (const file of files) {
-            if (!file.type.startsWith("image/")) {
+            console.log(`Processing file: ${file.name}, type: ${file.type}`);
+
+            // Check if it's an image by MIME type or file extension
+            const isImage = file.type.startsWith("image/") ||
+                           /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(file.name);
+
+            if (!isImage) {
+              console.warn(`Skipped ${file.name}: not an image (type: ${file.type})`);
               showStatus(`Skipped ${file.name}: not an image`, "bad");
               continue;
             }
 
-            await addPhoto(state.currentAlbum.name, file, order);
-            order++;
+            try {
+              const photoId = await addPhoto(state.currentAlbum.name, file, order);
+              console.log(`Added photo ${photoId}`);
+              order++;
+              addedCount++;
+            } catch (err) {
+              console.error(`Failed to add photo ${file.name}:`, err);
+              showStatus(`Failed to add ${file.name}`, "bad");
+            }
           }
 
-          showStatus(
-            `Added ${files.length} photo${files.length !== 1 ? "s" : ""}`,
-            "ok"
-          );
+          console.log(`Successfully added ${addedCount} photo(s)`);
+
+          if (addedCount > 0) {
+            showStatus(
+              `Added ${addedCount} photo${addedCount !== 1 ? "s" : ""}`,
+              "ok"
+            );
+          } else {
+            showStatus("No images were added", "bad");
+          }
           await renderPhotos();
           await refreshCurrentAlbum();
         } catch (error) {
           console.error("Error uploading photos:", error);
-          showStatus("Failed to upload photos", "bad");
+          showStatus(`Failed to upload photos: ${error.message}`, "bad");
         }
       }
 
