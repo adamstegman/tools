@@ -787,6 +787,11 @@
 
         const photos = await getPhotosForAlbum(state.currentAlbum.name);
 
+        console.log(`Retrieved ${photos.length} photos from IndexedDB`);
+        photos.forEach((photo, i) => {
+          console.log(`Photo ${i}: id=${photo.id}, filename=${photo.filename}, blob type=${photo.blob?.constructor.name}, blob size=${photo.blob?.size}`);
+        });
+
         const photoCount = photos.length;
         const photoText = photoCount === 1 ? "photo" : "photos";
         el.photoCount.textContent = `${photoCount} ${photoText}`;
@@ -801,7 +806,12 @@
 
         el.photoGallery.innerHTML = photos
           .map((photo) => {
+            if (!photo.blob || !(photo.blob instanceof Blob)) {
+              console.error(`Photo ${photo.id} has invalid blob:`, photo.blob);
+              return "";
+            }
             const url = URL.createObjectURL(photo.blob);
+            console.log(`Created blob URL for ${photo.filename}: ${url}`);
             return `
             <div class="photo-item" draggable="true" data-photo-id="${photo.id}">
               <img src="${url}" alt="${escapeHtml(photo.filename)}" />
