@@ -931,7 +931,8 @@
         await Promise.all(updates);
         draggedElement = null;
 
-        // Refresh to update album photoIds
+        // Re-render to show updated order
+        await renderPhotos();
         await refreshCurrentAlbum();
       }
 
