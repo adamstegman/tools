@@ -988,7 +988,7 @@
 
       /**
        * Handle photo upload
-       * @param {FileList} files
+       * @param {Array<File>} files - Array of File objects
        */
       async function handlePhotoUpload(files) {
         if (!state.currentAlbum) {
@@ -1008,11 +1008,7 @@
           let order = photos.length;
           let addedCount = 0;
 
-          // Convert FileList to Array for proper iteration
-          const fileArray = Array.from(files);
-          console.log(`Converted to array with ${fileArray.length} items`);
-
-          for (const file of fileArray) {
+          for (const file of files) {
             console.log(`Processing file: ${file.name}, type: ${file.type}`);
 
             // Check if it's an image by MIME type or file extension
@@ -1131,8 +1127,10 @@
 
       // File input change
       el.photoInput.addEventListener("change", (e) => {
-        handlePhotoUpload(e.target.files);
+        // Convert FileList to array immediately before reset clears it
+        const filesArray = Array.from(e.target.files);
         e.target.value = ""; // Reset input
+        handlePhotoUpload(filesArray);
       });
 
       // Drag and drop for upload zone
@@ -1153,8 +1151,9 @@
         e.stopPropagation();
         el.uploadZone.classList.remove("drag-over");
 
-        const files = e.dataTransfer.files;
-        handlePhotoUpload(files);
+        // Convert FileList to array immediately
+        const filesArray = Array.from(e.dataTransfer.files);
+        handlePhotoUpload(filesArray);
       });
 
       // Initialize
