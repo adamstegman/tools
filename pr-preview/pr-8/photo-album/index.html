@@ -938,9 +938,6 @@
       async function renderPhotos() {
         if (!state.currentAlbum) return;
 
-        // Revoke any straggler URLs from other parts of the app as a failsafe
-        revokeAllBlobUrls();
-
         const photos = await getPhotosForAlbum(state.currentAlbum.name);
 
         console.log(`Retrieved ${photos.length} photos from IndexedDB`);
