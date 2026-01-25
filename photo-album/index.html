@@ -634,14 +634,12 @@
           .toString(36)
           .substr(2, 9)}`;
 
-        // Convert File to pure Blob for proper IndexedDB storage
-        // File objects don't serialize correctly, but Blobs do
-        const blob = new Blob([file], { type: file.type });
-
+        // The 'file' object from the input is already a Blob subclass and can be stored directly.
+        // Creating a new Blob from it is memory-intensive and can cause issues.
         const photo = {
           id,
           albumName,
-          blob: blob,
+          blob: file,
           filename: file.name,
           order,
           createdAt: Date.now(),
