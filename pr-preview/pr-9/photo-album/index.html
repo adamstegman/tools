@@ -901,10 +901,12 @@
         el.albumSelectionView.classList.remove("hidden");
         el.albumView.classList.add("hidden");
 
-        // Clean up observer and cached data when leaving album view
+        // Clean up observer, queue, and cached data when leaving album view
         if (mediaObserver) {
           mediaObserver.disconnect();
         }
+        loadingQueue.length = 0;
+        activeLoads.clear();
         photoDataCache.clear();
 
         await renderAlbumList();
@@ -985,6 +987,41 @@
       // IntersectionObserver for lazy loading media
       let mediaObserver = null;
 
+      // Loading queue for concurrency control
+      const loadingQueue = [];
+      const activeLoads = new Set();
+      const MAX_CONCURRENT_LOADS = 4;
+
+      /**
+       * Process the loading queue
+       */
+      function processLoadQueue() {
+        while (activeLoads.size < MAX_CONCURRENT_LOADS && loadingQueue.length > 0) {
+          const { item, photoId } = loadingQueue.shift();
+          const media = item.querySelector('img, video');
+          // Skip if already loaded/loading or no longer in DOM
+          if (!media || media.dataset.loaded === 'true' || media.dataset.loading === 'true' || !item.isConnected) {
+            continue;
+          }
+          doLoadMedia(item, photoId);
+        }
+      }
+
+      /**
+       * Queue a media item for loading
+       */
+      function queueMediaLoad(item, photoId) {
+        const media = item.querySelector('img, video');
+        if (!media || media.dataset.loaded === 'true' || media.dataset.loading === 'true') {
+          return;
+        }
+        // Check if already queued
+        if (!loadingQueue.some(q => q.photoId === photoId)) {
+          loadingQueue.push({ item, photoId });
+        }
+        processLoadQueue();
+      }
+
       /**
        * Initialize the IntersectionObserver for lazy loading
        */
@@ -992,6 +1029,10 @@
         if (mediaObserver) {
           mediaObserver.disconnect();
         }
+
+        // Clear the loading queue
+        loadingQueue.length = 0;
+        activeLoads.clear();
 
         mediaObserver = new IntersectionObserver(
           (entries) => {
@@ -1001,9 +1042,9 @@
               const media = item.querySelector('img, video');
 
               if (entry.isIntersecting) {
-                // Element is visible - load the media if not already loaded
+                // Element is visible - queue it for loading
                 if (media && !media.dataset.loaded && !media.dataset.loading) {
-                  loadMediaForItem(item, photoId);
+                  queueMediaLoad(item, photoId);
                 }
               }
             });
@@ -1017,11 +1058,11 @@
       }
 
       /**
-       * Load media for a photo item
+       * Actually load media for a photo item (called from queue processor)
        * @param {HTMLElement} item - The photo item element
        * @param {string} photoId - The photo ID
        */
-      function loadMediaForItem(item, photoId) {
+      function doLoadMedia(item, photoId) {
         const photoData = photoDataCache.get(photoId);
         if (!photoData) {
           console.error(`No cached data for photo ${photoId}`);
@@ -1034,6 +1075,7 @@
         }
 
         media.dataset.loading = 'true';
+        activeLoads.add(photoId);
 
         let blobToRender;
         // Check for new ArrayBuffer format or fall back to old Blob format
@@ -1044,28 +1086,58 @@
         } else {
           console.error(`Photo ${photoId} has invalid blob data`);
           media.dataset.loading = 'false';
+          activeLoads.delete(photoId);
+          processLoadQueue();
           return;
         }
 
         const url = URL.createObjectURL(blobToRender);
         console.log(`Created blob URL for ${photoData.filename}: ${url}`);
 
-        media.src = url;
+        const isVideo = media.tagName === 'VIDEO';
 
-        const eventName = media.tagName === 'VIDEO' ? 'canplay' : 'load';
-
-        // Revoke URL on load or error to free up memory immediately
+        // Revoke URL and mark complete
         const revokeOnce = () => {
           if (media.dataset.revoked !== 'true') {
             URL.revokeObjectURL(url);
             media.dataset.revoked = 'true';
             media.dataset.loaded = 'true';
             media.dataset.loading = 'false';
+            activeLoads.delete(photoId);
             console.log(`Revoked blob URL for ${photoData.filename} after load`);
+            // Process next item in queue
+            processLoadQueue();
           }
         };
-        media.addEventListener(eventName, revokeOnce, { once: true });
-        media.addEventListener('error', revokeOnce, { once: true });
+
+        if (isVideo) {
+          // Videos: listen to multiple events for reliability
+          media.addEventListener('canplay', revokeOnce, { once: true });
+          media.addEventListener('loadeddata', revokeOnce, { once: true });
+          media.addEventListener('error', revokeOnce, { once: true });
+          // Fallback timeout for videos that don't fire events properly
+          setTimeout(() => {
+            if (media.dataset.revoked !== 'true') {
+              console.log(`Timeout revoke for video ${photoData.filename}`);
+              revokeOnce();
+            }
+          }, 5000);
+        } else {
+          // Images: standard load/error events
+          media.addEventListener('load', revokeOnce, { once: true });
+          media.addEventListener('error', revokeOnce, { once: true });
+        }
+
+        media.src = url;
+      }
+
+      /**
+       * Load media for a photo item (legacy wrapper, now queues instead)
+       * @param {HTMLElement} item - The photo item element
+       * @param {string} photoId - The photo ID
+       */
+      function loadMediaForItem(item, photoId) {
+        queueMediaLoad(item, photoId);
       }
 
       /**
