@@ -259,6 +259,27 @@
         background: color-mix(in oklch, CanvasText 2%, Canvas);
       }
 
+      .photo-item img:not([src]),
+      .photo-item video:not([src]) {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 200px;
+        background: linear-gradient(
+          90deg,
+          color-mix(in oklch, CanvasText 4%, Canvas) 25%,
+          color-mix(in oklch, CanvasText 8%, Canvas) 50%,
+          color-mix(in oklch, CanvasText 4%, Canvas) 75%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+      }
+
+      @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
       .photo-controls {
         position: absolute;
         top: 0.5rem;
@@ -880,6 +901,12 @@
         el.albumSelectionView.classList.remove("hidden");
         el.albumView.classList.add("hidden");
 
+        // Clean up observer and cached data when leaving album view
+        if (mediaObserver) {
+          mediaObserver.disconnect();
+        }
+        photoDataCache.clear();
+
         await renderAlbumList();
       }
 
@@ -952,6 +979,95 @@
         await renderPhotos();
       }
 
+      // Store photo data for lazy loading (keyed by photo ID)
+      const photoDataCache = new Map();
+
+      // IntersectionObserver for lazy loading media
+      let mediaObserver = null;
+
+      /**
+       * Initialize the IntersectionObserver for lazy loading
+       */
+      function initMediaObserver() {
+        if (mediaObserver) {
+          mediaObserver.disconnect();
+        }
+
+        mediaObserver = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              const item = entry.target;
+              const photoId = item.dataset.photoId;
+              const media = item.querySelector('img, video');
+
+              if (entry.isIntersecting) {
+                // Element is visible - load the media if not already loaded
+                if (media && !media.dataset.loaded && !media.dataset.loading) {
+                  loadMediaForItem(item, photoId);
+                }
+              }
+            });
+          },
+          {
+            // Start loading when within 200px of the viewport
+            rootMargin: '200px',
+            threshold: 0
+          }
+        );
+      }
+
+      /**
+       * Load media for a photo item
+       * @param {HTMLElement} item - The photo item element
+       * @param {string} photoId - The photo ID
+       */
+      function loadMediaForItem(item, photoId) {
+        const photoData = photoDataCache.get(photoId);
+        if (!photoData) {
+          console.error(`No cached data for photo ${photoId}`);
+          return;
+        }
+
+        const media = item.querySelector('img, video');
+        if (!media || media.dataset.loaded === 'true') {
+          return;
+        }
+
+        media.dataset.loading = 'true';
+
+        let blobToRender;
+        // Check for new ArrayBuffer format or fall back to old Blob format
+        if (photoData.blob && photoData.blob.data instanceof ArrayBuffer) {
+          blobToRender = new Blob([photoData.blob.data], { type: photoData.blob.type });
+        } else if (photoData.blob instanceof Blob) {
+          blobToRender = photoData.blob;
+        } else {
+          console.error(`Photo ${photoId} has invalid blob data`);
+          media.dataset.loading = 'false';
+          return;
+        }
+
+        const url = URL.createObjectURL(blobToRender);
+        console.log(`Created blob URL for ${photoData.filename}: ${url}`);
+
+        media.src = url;
+
+        const eventName = media.tagName === 'VIDEO' ? 'canplay' : 'load';
+
+        // Revoke URL on load or error to free up memory immediately
+        const revokeOnce = () => {
+          if (media.dataset.revoked !== 'true') {
+            URL.revokeObjectURL(url);
+            media.dataset.revoked = 'true';
+            media.dataset.loaded = 'true';
+            media.dataset.loading = 'false';
+            console.log(`Revoked blob URL for ${photoData.filename} after load`);
+          }
+        };
+        media.addEventListener(eventName, revokeOnce, { once: true });
+        media.addEventListener('error', revokeOnce, { once: true });
+      }
+
       /**
        * Render photos for current album
        */
@@ -961,13 +1077,18 @@
         const photos = await getPhotosForAlbum(state.currentAlbum.name);
 
         console.log(`Retrieved ${photos.length} photos from IndexedDB`);
-        photos.forEach((photo, i) => {
-          console.log(`Photo ${i}: id=${photo.id}, filename=${photo.filename}, blob type=${photo.blob?.constructor.name}, blob size=${photo.blob?.size}`);
-        });
 
         const photoCount = photos.length;
         const photoText = photoCount === 1 ? "photo" : "photos";
         el.photoCount.textContent = `${photoCount} ${photoText}`;
+
+        // Clean up previous observer
+        if (mediaObserver) {
+          mediaObserver.disconnect();
+        }
+
+        // Clear old cached data
+        photoDataCache.clear();
 
         el.photoGallery.innerHTML = ""; // Clear the gallery
 
@@ -978,39 +1099,37 @@
 
         el.noPhotos.classList.add("hidden");
 
+        // Initialize the observer
+        initMediaObserver();
+
         // Create a document fragment to build the list in memory for better performance
         const fragment = document.createDocumentFragment();
 
         for (const photo of photos) {
-          let blobToRender;
-          // Check for new ArrayBuffer format or fall back to old Blob format
-          if (photo.blob && photo.blob.data instanceof ArrayBuffer) {
-            blobToRender = new Blob([photo.blob.data], { type: photo.blob.type });
-          } else if (photo.blob instanceof Blob) {
-            blobToRender = photo.blob;
-          } else {
+          // Validate blob data before caching
+          const hasValidBlob = (photo.blob && photo.blob.data instanceof ArrayBuffer) ||
+                               (photo.blob instanceof Blob);
+
+          if (!hasValidBlob) {
             console.error(`Photo ${photo.id} has invalid/unrecognized blob data:`, photo.blob);
             continue;
           }
 
-          if (!blobToRender || !blobToRender.size || typeof blobToRender.slice !== 'function') {
-            console.error(`Photo ${photo.id} has invalid blob:`, blobToRender);
-            continue; // Skip invalid photos
-          }
+          // Cache the photo data for lazy loading
+          photoDataCache.set(photo.id, photo);
 
-          const url = URL.createObjectURL(blobToRender);
-          console.log(`Created blob URL for ${photo.filename}: ${url}`);
-
-          const isVideo = photo.blob.type.startsWith("video/") || /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
+          const isVideo = (photo.blob.type && photo.blob.type.startsWith("video/")) ||
+                          /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
 
           const item = document.createElement('div');
           item.className = 'photo-item';
           item.draggable = true;
           item.dataset.photoId = photo.id;
 
+          // Create placeholder media element without src - will be loaded lazily
           const mediaHtml = isVideo
-            ? `<video src="${url}" controls aria-label="${escapeHtml(photo.filename)}"></video>`
-            : `<img src="${url}" alt="${escapeHtml(photo.filename)}" />`;
+            ? `<video controls aria-label="${escapeHtml(photo.filename)}" style="min-height: 200px; background: var(--card);"></video>`
+            : `<img alt="${escapeHtml(photo.filename)}" style="min-height: 200px; background: var(--card);" />`;
 
           item.innerHTML = `
             ${mediaHtml}
@@ -1022,28 +1141,13 @@
             <div class="photo-filename">${escapeHtml(photo.filename)}</div>
           `;
 
-          const media = item.querySelector('img, video');
-          const eventName = media.tagName === 'VIDEO' ? 'canplay' : 'load';
-
-          // Revoke URL on load or error to free up memory immediately
-          const revokeOnce = () => {
-            // Use a dataset attribute to ensure we only revoke once
-            if (media.dataset.revoked !== 'true') {
-              URL.revokeObjectURL(url);
-              media.dataset.revoked = 'true';
-              console.log(`Revoked blob URL for ${photo.filename} after load`);
-            }
-          };
-          media.addEventListener(eventName, revokeOnce, { once: true });
-          media.addEventListener('error', revokeOnce, { once: true });
-
           fragment.appendChild(item);
         }
 
         // Append the whole list to the DOM at once
         el.photoGallery.appendChild(fragment);
 
-        // Now, attach all the event handlers in a second pass
+        // Now, attach all the event handlers and start observing
         const photoItems = el.photoGallery.querySelectorAll(".photo-item");
         photoItems.forEach((item, index) => {
           // Drag handlers
@@ -1066,6 +1170,9 @@
           // Disable buttons at edges
           if (index === 0) moveUpBtn.disabled = true;
           if (index === photoItems.length - 1) moveDownBtn.disabled = true;
+
+          // Start observing for lazy loading
+          mediaObserver.observe(item);
         });
       }
 
