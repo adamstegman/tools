@@ -909,6 +909,13 @@
         activeLoads.clear();
         photoDataCache.clear();
 
+        // Revoke all video blob URLs
+        for (const [photoId, url] of videoBlobUrls) {
+          URL.revokeObjectURL(url);
+          console.log(`Revoked video blob URL for ${photoId} on album exit`);
+        }
+        videoBlobUrls.clear();
+
         await renderAlbumList();
       }
 
@@ -991,6 +998,9 @@
       const loadingQueue = [];
       const activeLoads = new Set();
       const MAX_CONCURRENT_LOADS = 4;
+
+      // Track video blob URLs - these must stay alive during playback
+      const videoBlobUrls = new Map(); // photoId -> url
 
       /**
        * Process the loading queue
@@ -1096,34 +1106,56 @@
 
         const isVideo = media.tagName === 'VIDEO';
 
-        // Revoke URL and mark complete
-        const revokeOnce = () => {
-          if (media.dataset.revoked !== 'true') {
-            URL.revokeObjectURL(url);
-            media.dataset.revoked = 'true';
-            media.dataset.loaded = 'true';
-            media.dataset.loading = 'false';
-            activeLoads.delete(photoId);
-            console.log(`Revoked blob URL for ${photoData.filename} after load`);
-            // Process next item in queue
-            processLoadQueue();
-          }
-        };
-
         if (isVideo) {
-          // Videos: listen to multiple events for reliability
-          media.addEventListener('canplay', revokeOnce, { once: true });
-          media.addEventListener('loadeddata', revokeOnce, { once: true });
-          media.addEventListener('error', revokeOnce, { once: true });
-          // Fallback timeout for videos that don't fire events properly
+          // Videos: keep blob URL alive for playback, only revoke when leaving album
+          videoBlobUrls.set(photoId, url);
+
+          const markLoaded = () => {
+            if (media.dataset.loaded !== 'true') {
+              media.dataset.loaded = 'true';
+              media.dataset.loading = 'false';
+              activeLoads.delete(photoId);
+              console.log(`Video ${photoData.filename} ready for playback (blob URL kept alive)`);
+              processLoadQueue();
+            }
+          };
+
+          media.addEventListener('canplay', markLoaded, { once: true });
+          media.addEventListener('loadeddata', markLoaded, { once: true });
+          media.addEventListener('error', () => {
+            // On error, revoke immediately since it won't play anyway
+            if (media.dataset.loaded !== 'true') {
+              URL.revokeObjectURL(url);
+              videoBlobUrls.delete(photoId);
+              media.dataset.revoked = 'true';
+              media.dataset.loaded = 'true';
+              media.dataset.loading = 'false';
+              activeLoads.delete(photoId);
+              console.log(`Revoked blob URL for ${photoData.filename} after error`);
+              processLoadQueue();
+            }
+          }, { once: true });
+
+          // Fallback timeout to free up queue slot (but keep URL alive)
           setTimeout(() => {
-            if (media.dataset.revoked !== 'true') {
-              console.log(`Timeout revoke for video ${photoData.filename}`);
-              revokeOnce();
+            if (media.dataset.loaded !== 'true') {
+              console.log(`Timeout: marking video ${photoData.filename} as loaded`);
+              markLoaded();
             }
           }, 5000);
         } else {
-          // Images: standard load/error events
+          // Images: revoke URL after load since image is decoded into memory
+          const revokeOnce = () => {
+            if (media.dataset.revoked !== 'true') {
+              URL.revokeObjectURL(url);
+              media.dataset.revoked = 'true';
+              media.dataset.loaded = 'true';
+              media.dataset.loading = 'false';
+              activeLoads.delete(photoId);
+              console.log(`Revoked blob URL for ${photoData.filename} after load`);
+              processLoadQueue();
+            }
+          };
           media.addEventListener('load', revokeOnce, { once: true });
           media.addEventListener('error', revokeOnce, { once: true });
         }
@@ -1161,6 +1193,12 @@
 
         // Clear old cached data
         photoDataCache.clear();
+
+        // Revoke video blob URLs before clearing gallery
+        for (const [photoId, url] of videoBlobUrls) {
+          URL.revokeObjectURL(url);
+        }
+        videoBlobUrls.clear();
 
         el.photoGallery.innerHTML = ""; // Clear the gallery
 
