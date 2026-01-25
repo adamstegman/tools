@@ -458,18 +458,7 @@
       let state = {
         currentAlbum: null,
         db: null,
-        activeBlobUrls: new Set(), // Track blob URLs for proper cleanup
       };
-
-      /**
-       * Revoke all active blob URLs to prevent memory leaks
-       */
-      function revokeAllBlobUrls() {
-        for (const url of state.activeBlobUrls) {
-          URL.revokeObjectURL(url);
-        }
-        state.activeBlobUrls.clear();
-      }
 
       // IndexedDB setup
       const DB_NAME = "PhotoAlbumDB";
@@ -696,36 +685,20 @@
         const getRequest = store.get(id);
 
         return new Promise((resolve, reject) => {
-          getRequest.onsuccess = async () => {
+          getRequest.onsuccess = () => {
             const photo = getRequest.result;
             if (photo) {
-              console.log(`Updating order for ${photo.filename}: ${photo.order} -> ${order}`);
-
-              try {
-                // Read the blob as ArrayBuffer to get the actual binary data
-                const arrayBuffer = await photo.blob.arrayBuffer();
-                // Create a fresh blob from the raw binary data
-                const freshBlob = new Blob([arrayBuffer], { type: photo.blob.type });
-
-                photo.order = order;
-                photo.blob = freshBlob;
-
-                const putRequest = store.put(photo);
-                putRequest.onsuccess = () => {
-                  console.log(`Successfully updated order for ${photo.filename}`);
-                  resolve();
-                };
-                putRequest.onerror = () => {
-                  console.error(`Failed to update order for ${photo.filename}:`, putRequest.error);
-                  reject(putRequest.error);
-                };
-              } catch (error) {
-                console.error(`Failed to recreate blob for ${photo.filename}:`, error);
-                reject(error);
-              }
+              // Simply update the order property. The blob data does not need to be touched.
+              photo.order = order;
+              const putRequest = store.put(photo);
+              putRequest.onsuccess = () => resolve();
+              putRequest.onerror = () => {
+                console.error(`Failed to update order for ${photo.filename}:`, putRequest.error);
+                reject(putRequest.error);
+              };
             } else {
               console.warn(`Photo ${id} not found in database`);
-              resolve();
+              resolve(); // If not found, resolve without error.
             }
           };
           getRequest.onerror = () => reject(getRequest.error);
@@ -887,9 +860,6 @@
         el.albumSelectionView.classList.remove("hidden");
         el.albumView.classList.add("hidden");
 
-        // Clean up blob URLs when leaving album view
-        revokeAllBlobUrls();
-
         await renderAlbumList();
       }
 
@@ -968,9 +938,6 @@
       async function renderPhotos() {
         if (!state.currentAlbum) return;
 
-        // Revoke old blob URLs before creating new ones to prevent memory leaks
-        revokeAllBlobUrls();
-
         const photos = await getPhotosForAlbum(state.currentAlbum.name);
 
         console.log(`Retrieved ${photos.length} photos from IndexedDB`);
@@ -982,54 +949,70 @@
         const photoText = photoCount === 1 ? "photo" : "photos";
         el.photoCount.textContent = `${photoCount} ${photoText}`;
 
+        el.photoGallery.innerHTML = ""; // Clear the gallery
+
         if (photos.length === 0) {
           el.noPhotos.classList.remove("hidden");
-          el.photoGallery.innerHTML = "";
           return;
         }
 
         el.noPhotos.classList.add("hidden");
 
-        el.photoGallery.innerHTML = photos
-          .map((photo) => {
-            const blobCheck = {
-              exists: !!photo.blob,
-              isBlob: photo.blob instanceof Blob,
-              type: photo.blob?.constructor?.name,
-              size: photo.blob?.size,
-              hasSlice: typeof photo.blob?.slice === 'function',
-              toString: Object.prototype.toString.call(photo.blob)
-            };
-            console.log(`Rendering photo ${photo.filename}:`, blobCheck);
+        // Create a document fragment to build the list in memory for better performance
+        const fragment = document.createDocumentFragment();
 
-            // Check if it's blob-like (has size and slice method)
-            if (!photo.blob || !photo.blob.size || typeof photo.blob.slice !== 'function') {
-              console.error(`Photo ${photo.id} has invalid blob:`, photo.blob);
-              return "";
-            }
-            const url = URL.createObjectURL(photo.blob);
-            state.activeBlobUrls.add(url);
-            console.log(`Created blob URL for ${photo.filename}: ${url}`);
-            const isVideo = photo.blob.type.startsWith("video/") ||
-                           /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
-            const mediaElement = isVideo
-              ? `<video src="${url}" controls aria-label="${escapeHtml(photo.filename)}"></video>`
-              : `<img src="${url}" alt="${escapeHtml(photo.filename)}" />`;
-            return `
-            <div class="photo-item" draggable="true" data-photo-id="${photo.id}">
-              ${mediaElement}
-              <div class="photo-controls">
-                <button class="move-up" title="Move up" aria-label="Move photo up">↑</button>
-                <button class="move-down" title="Move down" aria-label="Move photo down">↓</button>
-                <button class="danger delete-photo" title="Delete" aria-label="Delete photo">×</button>
-              </div>
-              <div class="photo-filename">${escapeHtml(photo.filename)}</div>
+        for (const photo of photos) {
+          if (!photo.blob || !photo.blob.size || typeof photo.blob.slice !== 'function') {
+            console.error(`Photo ${photo.id} has invalid blob:`, photo.blob);
+            continue; // Skip invalid photos
+          }
+
+          const url = URL.createObjectURL(photo.blob);
+          console.log(`Created blob URL for ${photo.filename}: ${url}`);
+
+          const isVideo = photo.blob.type.startsWith("video/") || /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
+
+          const item = document.createElement('div');
+          item.className = 'photo-item';
+          item.draggable = true;
+          item.dataset.photoId = photo.id;
+
+          const mediaHtml = isVideo
+            ? `<video src="${url}" controls aria-label="${escapeHtml(photo.filename)}"></video>`
+            : `<img src="${url}" alt="${escapeHtml(photo.filename)}" />`;
+
+          item.innerHTML = `
+            ${mediaHtml}
+            <div class="photo-controls">
+              <button class="move-up" title="Move up" aria-label="Move photo up">↑</button>
+              <button class="move-down" title="Move down" aria-label="Move photo down">↓</button>
+              <button class="danger delete-photo" title="Delete" aria-label="Delete photo">×</button>
             </div>
+            <div class="photo-filename">${escapeHtml(photo.filename)}</div>
           `;
-          })
-          .join("");
 
-        // Add drag and drop handlers
+          const media = item.querySelector('img, video');
+          const eventName = media.tagName === 'VIDEO' ? 'canplay' : 'load';
+
+          // Revoke URL on load or error to free up memory immediately
+          const revokeOnce = () => {
+            // Use a dataset attribute to ensure we only revoke once
+            if (media.dataset.revoked !== 'true') {
+              URL.revokeObjectURL(url);
+              media.dataset.revoked = 'true';
+              console.log(`Revoked blob URL for ${photo.filename} after load`);
+            }
+          };
+          media.addEventListener(eventName, revokeOnce, { once: true });
+          media.addEventListener('error', revokeOnce, { once: true });
+
+          fragment.appendChild(item);
+        }
+
+        // Append the whole list to the DOM at once
+        el.photoGallery.appendChild(fragment);
+
+        // Now, attach all the event handlers in a second pass
         const photoItems = el.photoGallery.querySelectorAll(".photo-item");
         photoItems.forEach((item, index) => {
           // Drag handlers
