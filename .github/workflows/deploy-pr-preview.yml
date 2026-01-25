@@ -28,10 +28,17 @@ jobs:
           set -euo pipefail
           rm -rf site
           mkdir -p site
-          cp -R index.html site/
-          cp -R sales-tax-estimator site/
-          cp -R tmdb-watchlist site/
-          cp -R static-social-network site/
+
+          # Copy index.html
+          cp index.html site/
+
+          # Copy all tool directories (directories containing index.html, excluding hidden dirs and site/)
+          for dir in */; do
+            if [ -f "${dir}index.html" ] && [ "$dir" != "site/" ]; then
+              cp -R "$dir" site/
+            fi
+          done
+
           touch site/.nojekyll
 
       - name: Deploy preview
