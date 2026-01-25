@@ -634,12 +634,15 @@
           .toString(36)
           .substr(2, 9)}`;
 
-        // The 'file' object from the input is already a Blob subclass and can be stored directly.
-        // Creating a new Blob from it is memory-intensive and can cause issues.
+        // Slicing the file is a common workaround for a WebKit bug where
+        // File/Blob objects from inputs can't be stored directly in IndexedDB.
+        // This creates a new Blob reference without copying all the data into memory.
+        const storableBlob = file.slice();
+
         const photo = {
           id,
           albumName,
-          blob: file,
+          blob: storableBlob,
           filename: file.name,
           order,
           createdAt: Date.now(),
