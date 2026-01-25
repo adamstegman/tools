@@ -392,7 +392,19 @@
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
-              <h2 style="margin: 0" id="current-album-name"></h2>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h2 style="margin: 0" id="current-album-name"></h2>
+                <input
+                  type="text"
+                  id="rename-album-input"
+                  class="hidden"
+                  style="font-size: 1.25rem; font-weight: 600; margin: 0;"
+                  aria-label="New album name"
+                />
+                <button id="rename-album-btn" class="secondary" style="padding: 0.375rem 0.75rem; min-height: auto; font-size: 0.875rem;">Rename</button>
+                <button id="save-rename-btn" class="hidden" style="padding: 0.375rem 0.75rem; min-height: auto; font-size: 0.875rem;">Save</button>
+                <button id="cancel-rename-btn" class="secondary hidden" style="padding: 0.375rem 0.75rem; min-height: auto; font-size: 0.875rem;">Cancel</button>
+              </div>
               <p style="margin: 0.25rem 0 0" id="photo-count"></p>
             </div>
             <div class="actions" style="margin: 0">
@@ -461,6 +473,10 @@
         albumList: document.getElementById("album-list"),
         noAlbums: document.getElementById("no-albums"),
         currentAlbumName: document.getElementById("current-album-name"),
+        renameAlbumInput: document.getElementById("rename-album-input"),
+        renameAlbumBtn: document.getElementById("rename-album-btn"),
+        saveRenameBtn: document.getElementById("save-rename-btn"),
+        cancelRenameBtn: document.getElementById("cancel-rename-btn"),
         photoCount: document.getElementById("photo-count"),
         backBtn: document.getElementById("back-btn"),
         exportAlbumBtn: document.getElementById("export-album-btn"),
@@ -618,6 +634,69 @@
         return new Promise((resolve, reject) => {
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error);
+        });
+      }
+
+      /**
+       * Rename an album
+       * @param {string} oldName
+       * @param {string} newName
+       * @returns {Promise<void>}
+       */
+      async function renameAlbum(oldName, newName) {
+        // Check if new name already exists
+        const existingAlbum = await getAlbum(newName);
+        if (existingAlbum) {
+          throw new Error("An album with this name already exists");
+        }
+
+        // Get the old album
+        const oldAlbum = await getAlbum(oldName);
+        if (!oldAlbum) {
+          throw new Error("Album not found");
+        }
+
+        // Create new album with new name
+        const newAlbum = {
+          name: newName,
+          photoIds: oldAlbum.photoIds,
+          createdAt: oldAlbum.createdAt,
+        };
+
+        const albumTx = state.db.transaction(ALBUMS_STORE, "readwrite");
+        const albumStore = albumTx.objectStore(ALBUMS_STORE);
+        albumStore.add(newAlbum);
+
+        await new Promise((resolve, reject) => {
+          albumTx.oncomplete = () => resolve();
+          albumTx.onerror = () => reject(albumTx.error);
+        });
+
+        // Update all photos to reference the new album name
+        const photos = await getPhotosForAlbum(oldName);
+        if (photos.length > 0) {
+          const photoTx = state.db.transaction(PHOTOS_STORE, "readwrite");
+          const photoStore = photoTx.objectStore(PHOTOS_STORE);
+
+          for (const photo of photos) {
+            photo.albumName = newName;
+            photoStore.put(photo);
+          }
+
+          await new Promise((resolve, reject) => {
+            photoTx.oncomplete = () => resolve();
+            photoTx.onerror = () => reject(photoTx.error);
+          });
+        }
+
+        // Delete old album
+        const deleteTx = state.db.transaction(ALBUMS_STORE, "readwrite");
+        const deleteStore = deleteTx.objectStore(ALBUMS_STORE);
+        deleteStore.delete(oldName);
+
+        await new Promise((resolve, reject) => {
+          deleteTx.oncomplete = () => resolve();
+          deleteTx.onerror = () => reject(deleteTx.error);
         });
       }
 
@@ -1580,6 +1659,71 @@
         } catch (error) {
           console.error("Error deleting album:", error);
           showStatus("Failed to delete album", "bad");
+        }
+      });
+
+      // Rename album - show edit mode
+      el.renameAlbumBtn.addEventListener("click", () => {
+        if (!state.currentAlbum) return;
+        el.currentAlbumName.classList.add("hidden");
+        el.renameAlbumBtn.classList.add("hidden");
+        el.renameAlbumInput.classList.remove("hidden");
+        el.saveRenameBtn.classList.remove("hidden");
+        el.cancelRenameBtn.classList.remove("hidden");
+        el.renameAlbumInput.value = state.currentAlbum.name;
+        el.renameAlbumInput.focus();
+        el.renameAlbumInput.select();
+      });
+
+      // Rename album - save
+      async function saveAlbumRename() {
+        if (!state.currentAlbum) return;
+
+        const newName = el.renameAlbumInput.value.trim();
+        const oldName = state.currentAlbum.name;
+
+        if (!newName) {
+          showStatus("Please enter an album name", "bad");
+          return;
+        }
+
+        if (newName === oldName) {
+          cancelAlbumRename();
+          return;
+        }
+
+        try {
+          await renameAlbum(oldName, newName);
+          state.currentAlbum.name = newName;
+          el.currentAlbumName.textContent = newName;
+          showStatus(`Album renamed to "${newName}"`, "ok");
+          cancelAlbumRename();
+        } catch (error) {
+          console.error("Error renaming album:", error);
+          showStatus(error.message || "Failed to rename album", "bad");
+        }
+      }
+
+      // Rename album - cancel
+      function cancelAlbumRename() {
+        el.currentAlbumName.classList.remove("hidden");
+        el.renameAlbumBtn.classList.remove("hidden");
+        el.renameAlbumInput.classList.add("hidden");
+        el.saveRenameBtn.classList.add("hidden");
+        el.cancelRenameBtn.classList.add("hidden");
+      }
+
+      el.saveRenameBtn.addEventListener("click", saveAlbumRename);
+      el.cancelRenameBtn.addEventListener("click", cancelAlbumRename);
+
+      // Rename album - Enter to save, Escape to cancel
+      el.renameAlbumInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          saveAlbumRename();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancelAlbumRename();
         }
       });
 
