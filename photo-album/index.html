@@ -1139,8 +1139,8 @@
             });
           },
           {
-            // Start loading when within 200px of the viewport
-            rootMargin: '200px',
+            // Start loading when within 800px of the viewport
+            rootMargin: '800px',
             threshold: 0
           }
         );
@@ -1424,6 +1424,9 @@
 
         console.log("Drag ended, updating order...");
 
+        // Remember the photo ID of the dragged element to scroll to it after re-render
+        const draggedPhotoId = draggedElement?.dataset?.photoId;
+
         // Update order in database
         const photoItems = el.photoGallery.querySelectorAll(".photo-item");
         const updates = [];
@@ -1441,6 +1444,14 @@
         console.log("Re-rendering photos after drag...");
         await renderPhotos();
         await refreshCurrentAlbum();
+
+        // Scroll the moved item into view
+        if (draggedPhotoId) {
+          const movedItem = el.photoGallery.querySelector(`[data-photo-id="${draggedPhotoId}"]`);
+          if (movedItem) {
+            movedItem.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+          }
+        }
       }
 
       /**
@@ -1459,6 +1470,9 @@
         // Swap in DOM
         const current = photoItems[currentIndex];
         const target = photoItems[newIndex];
+
+        // Remember the photo ID of the moved element to scroll to it after re-render
+        const movedPhotoId = current.dataset.photoId;
 
         if (direction === -1) {
           target.parentNode.insertBefore(current, target);
@@ -1481,6 +1495,14 @@
         // Refresh to update buttons
         await renderPhotos();
         await refreshCurrentAlbum();
+
+        // Scroll the moved item into view
+        if (movedPhotoId) {
+          const movedItem = el.photoGallery.querySelector(`[data-photo-id="${movedPhotoId}"]`);
+          if (movedItem) {
+            movedItem.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+          }
+        }
       }
 
       /**
@@ -1504,11 +1526,22 @@
           return;
         }
 
+        // Find the index of the photo being deleted to scroll to neighboring photo after
+        const photoItems = Array.from(el.photoGallery.querySelectorAll(".photo-item"));
+        const deletedIndex = photoItems.findIndex(item => item.dataset.photoId === photoId);
+
         try {
           await deletePhoto(photoId);
           showStatus("Photo deleted", "ok");
           await renderPhotos();
           await refreshCurrentAlbum();
+
+          // Scroll to the photo now at the same position, or the previous one if we deleted the last
+          const newPhotoItems = el.photoGallery.querySelectorAll(".photo-item");
+          if (newPhotoItems.length > 0 && deletedIndex >= 0) {
+            const scrollToIndex = Math.min(deletedIndex, newPhotoItems.length - 1);
+            newPhotoItems[scrollToIndex].scrollIntoView({ block: 'nearest', behavior: 'instant' });
+          }
         } catch (error) {
           console.error("Error deleting photo:", error);
           showStatus("Failed to delete photo", "bad");
