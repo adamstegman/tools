@@ -1526,11 +1526,22 @@
           return;
         }
 
+        // Find the index of the photo being deleted to scroll to neighboring photo after
+        const photoItems = Array.from(el.photoGallery.querySelectorAll(".photo-item"));
+        const deletedIndex = photoItems.findIndex(item => item.dataset.photoId === photoId);
+
         try {
           await deletePhoto(photoId);
           showStatus("Photo deleted", "ok");
           await renderPhotos();
           await refreshCurrentAlbum();
+
+          // Scroll to the photo now at the same position, or the previous one if we deleted the last
+          const newPhotoItems = el.photoGallery.querySelectorAll(".photo-item");
+          if (newPhotoItems.length > 0 && deletedIndex >= 0) {
+            const scrollToIndex = Math.min(deletedIndex, newPhotoItems.length - 1);
+            newPhotoItems[scrollToIndex].scrollIntoView({ block: 'nearest', behavior: 'instant' });
+          }
         } catch (error) {
           console.error("Error deleting photo:", error);
           showStatus("Failed to delete photo", "bad");
