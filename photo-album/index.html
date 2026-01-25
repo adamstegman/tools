@@ -634,15 +634,15 @@
           .toString(36)
           .substr(2, 9)}`;
 
-        // Slicing the file is a common workaround for a WebKit bug where
-        // File/Blob objects from inputs can't be stored directly in IndexedDB.
-        // This creates a new Blob reference without copying all the data into memory.
-        const storableBlob = file.slice();
+        // As a final fallback for stubborn browser bugs, read the file
+        // into an ArrayBuffer. This is memory-intensive but the most
+        // reliable way to prepare data for IndexedDB.
+        const arrayBuffer = await file.arrayBuffer();
 
         const photo = {
           id,
           albumName,
-          blob: storableBlob,
+          blob: { data: arrayBuffer, type: file.type }, // Store object with raw data and type
           filename: file.name,
           order,
           createdAt: Date.now(),
@@ -724,6 +724,18 @@
         const photosData = await Promise.all(
           photos.map(async (photo) => {
             return new Promise((resolve) => {
+              let blobToExport;
+              // Check for new ArrayBuffer format or fall back to old Blob format
+              if (photo.blob && photo.blob.data instanceof ArrayBuffer) {
+                blobToExport = new Blob([photo.blob.data], { type: photo.blob.type });
+              } else if (photo.blob instanceof Blob) {
+                blobToExport = photo.blob;
+              } else {
+                console.error(`Skipping photo ${photo.id} in export due to invalid blob data.`);
+                // Resolve with null to filter out this photo later
+                return resolve(null);
+              }
+
               const reader = new FileReader();
               reader.onloadend = () => {
                 resolve({
@@ -733,10 +745,17 @@
                   createdAt: photo.createdAt,
                 });
               };
-              reader.readAsDataURL(photo.blob);
+              reader.onerror = () => {
+                 console.error(`FileReader error exporting photo ${photo.id}.`);
+                 return resolve(null);
+              };
+              reader.readAsDataURL(blobToExport);
             });
           })
         );
+
+        // Filter out any photos that failed to process
+        const validPhotosData = photosData.filter(p => p !== null);
 
         const exportData = {
           version: 1,
@@ -744,7 +763,7 @@
             name: album.name,
             createdAt: album.createdAt,
           },
-          photos: photosData,
+          photos: validPhotosData,
           exportedAt: Date.now(),
         };
 
@@ -963,12 +982,23 @@
         const fragment = document.createDocumentFragment();
 
         for (const photo of photos) {
-          if (!photo.blob || !photo.blob.size || typeof photo.blob.slice !== 'function') {
-            console.error(`Photo ${photo.id} has invalid blob:`, photo.blob);
+          let blobToRender;
+          // Check for new ArrayBuffer format or fall back to old Blob format
+          if (photo.blob && photo.blob.data instanceof ArrayBuffer) {
+            blobToRender = new Blob([photo.blob.data], { type: photo.blob.type });
+          } else if (photo.blob instanceof Blob) {
+            blobToRender = photo.blob;
+          } else {
+            console.error(`Photo ${photo.id} has invalid/unrecognized blob data:`, photo.blob);
+            continue;
+          }
+
+          if (!blobToRender || !blobToRender.size || typeof blobToRender.slice !== 'function') {
+            console.error(`Photo ${photo.id} has invalid blob:`, blobToRender);
             continue; // Skip invalid photos
           }
 
-          const url = URL.createObjectURL(photo.blob);
+          const url = URL.createObjectURL(blobToRender);
           console.log(`Created blob URL for ${photo.filename}: ${url}`);
 
           const isVideo = photo.blob.type.startsWith("video/") || /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
