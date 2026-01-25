@@ -458,7 +458,18 @@
       let state = {
         currentAlbum: null,
         db: null,
+        activeBlobUrls: new Set(), // Track blob URLs for proper cleanup
       };
+
+      /**
+       * Revoke all active blob URLs to prevent memory leaks
+       */
+      function revokeAllBlobUrls() {
+        for (const url of state.activeBlobUrls) {
+          URL.revokeObjectURL(url);
+        }
+        state.activeBlobUrls.clear();
+      }
 
       // IndexedDB setup
       const DB_NAME = "PhotoAlbumDB";
@@ -876,6 +887,9 @@
         el.albumSelectionView.classList.remove("hidden");
         el.albumView.classList.add("hidden");
 
+        // Clean up blob URLs when leaving album view
+        revokeAllBlobUrls();
+
         await renderAlbumList();
       }
 
@@ -954,6 +968,9 @@
       async function renderPhotos() {
         if (!state.currentAlbum) return;
 
+        // Revoke old blob URLs before creating new ones to prevent memory leaks
+        revokeAllBlobUrls();
+
         const photos = await getPhotosForAlbum(state.currentAlbum.name);
 
         console.log(`Retrieved ${photos.length} photos from IndexedDB`);
@@ -991,6 +1008,7 @@
               return "";
             }
             const url = URL.createObjectURL(photo.blob);
+            state.activeBlobUrls.add(url);
             console.log(`Created blob URL for ${photo.filename}: ${url}`);
             const isVideo = photo.blob.type.startsWith("video/") ||
                            /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
