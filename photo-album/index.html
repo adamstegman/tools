@@ -250,7 +250,8 @@
         opacity: 0.5;
       }
 
-      .photo-item img {
+      .photo-item img,
+      .photo-item video {
         width: 100%;
         display: block;
         max-height: 80vh;
@@ -391,15 +392,15 @@
           <input
             type="file"
             id="photo-input"
-            accept="image/*"
+            accept="image/*,video/*"
             multiple
-            aria-label="Upload photos"
+            aria-label="Upload photos and videos"
           />
           <p style="margin: 0; font-size: 1.125rem">
-            📸 Click or drag photos here to upload
+            📸 Click or drag photos and videos here to upload
           </p>
           <p style="margin: 0.5rem 0 0; font-size: 0.875rem">
-            Supports multiple images
+            Supports multiple images and videos
           </p>
         </div>
 
@@ -416,7 +417,7 @@
 
     <footer>
       <p>
-        All photos are stored locally in your browser using IndexedDB. No data
+        All photos and videos are stored locally in your browser using IndexedDB. No data
         is sent to any server. Export your albums regularly to avoid data loss.
       </p>
     </footer>
@@ -991,9 +992,14 @@
             }
             const url = URL.createObjectURL(photo.blob);
             console.log(`Created blob URL for ${photo.filename}: ${url}`);
+            const isVideo = photo.blob.type.startsWith("video/") ||
+                           /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(photo.filename);
+            const mediaElement = isVideo
+              ? `<video src="${url}" controls aria-label="${escapeHtml(photo.filename)}"></video>`
+              : `<img src="${url}" alt="${escapeHtml(photo.filename)}" />`;
             return `
             <div class="photo-item" draggable="true" data-photo-id="${photo.id}">
-              <img src="${url}" alt="${escapeHtml(photo.filename)}" />
+              ${mediaElement}
               <div class="photo-controls">
                 <button class="move-up" title="Move up" aria-label="Move photo up">↑</button>
                 <button class="move-down" title="Move down" aria-label="Move photo down">↓</button>
@@ -1206,13 +1212,15 @@
           for (const file of files) {
             console.log(`Processing file: ${file.name}, type: ${file.type}`);
 
-            // Check if it's an image by MIME type or file extension
+            // Check if it's an image or video by MIME type or file extension
             const isImage = file.type.startsWith("image/") ||
                            /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(file.name);
+            const isVideo = file.type.startsWith("video/") ||
+                           /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(file.name);
 
-            if (!isImage) {
-              console.warn(`Skipped ${file.name}: not an image (type: ${file.type})`);
-              showStatus(`Skipped ${file.name}: not an image`, "bad");
+            if (!isImage && !isVideo) {
+              console.warn(`Skipped ${file.name}: not an image or video (type: ${file.type})`);
+              showStatus(`Skipped ${file.name}: not an image or video`, "bad");
               continue;
             }
 
@@ -1227,15 +1235,15 @@
             }
           }
 
-          console.log(`Successfully added ${addedCount} photo(s)`);
+          console.log(`Successfully added ${addedCount} item(s)`);
 
           if (addedCount > 0) {
             showStatus(
-              `Added ${addedCount} photo${addedCount !== 1 ? "s" : ""}`,
+              `Added ${addedCount} item${addedCount !== 1 ? "s" : ""}`,
               "ok"
             );
           } else {
-            showStatus("No images were added", "bad");
+            showStatus("No images or videos were added", "bad");
           }
           await renderPhotos();
           await refreshCurrentAlbum();
