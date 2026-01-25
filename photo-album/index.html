@@ -341,8 +341,18 @@
               aria-label="New album name"
             />
             <button id="create-album-btn">Create Album</button>
+            <button id="import-album-btn" class="secondary">Import Album</button>
           </div>
         </div>
+
+        <!-- Hidden file input for import -->
+        <input
+          type="file"
+          id="import-input"
+          accept=".json,application/json"
+          style="display: none"
+          aria-label="Import album file"
+        />
 
         <div id="albums-container">
           <h2>Your Albums</h2>
@@ -366,20 +376,10 @@
             <div class="actions" style="margin: 0">
               <button id="back-btn" class="secondary">← Back to Albums</button>
               <button id="export-album-btn" class="secondary">Export Album</button>
-              <button id="import-album-btn" class="secondary">Import Album</button>
               <button id="delete-album-btn" class="danger">Delete Album</button>
             </div>
           </div>
         </div>
-
-        <!-- Hidden file input for import -->
-        <input
-          type="file"
-          id="import-input"
-          accept=".json,application/json"
-          style="display: none"
-          aria-label="Import album file"
-        />
 
         <div
           class="upload-zone"
