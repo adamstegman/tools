@@ -684,26 +684,33 @@
         const getRequest = store.get(id);
 
         return new Promise((resolve, reject) => {
-          getRequest.onsuccess = () => {
+          getRequest.onsuccess = async () => {
             const photo = getRequest.result;
             if (photo) {
               console.log(`Updating order for ${photo.filename}: ${photo.order} -> ${order}`);
 
-              // Recreate the blob to ensure it's not corrupted during IndexedDB put
-              const freshBlob = new Blob([photo.blob], { type: photo.blob.type });
+              try {
+                // Read the blob as ArrayBuffer to get the actual binary data
+                const arrayBuffer = await photo.blob.arrayBuffer();
+                // Create a fresh blob from the raw binary data
+                const freshBlob = new Blob([arrayBuffer], { type: photo.blob.type });
 
-              photo.order = order;
-              photo.blob = freshBlob;
+                photo.order = order;
+                photo.blob = freshBlob;
 
-              const putRequest = store.put(photo);
-              putRequest.onsuccess = () => {
-                console.log(`Successfully updated order for ${photo.filename}`);
-                resolve();
-              };
-              putRequest.onerror = () => {
-                console.error(`Failed to update order for ${photo.filename}:`, putRequest.error);
-                reject(putRequest.error);
-              };
+                const putRequest = store.put(photo);
+                putRequest.onsuccess = () => {
+                  console.log(`Successfully updated order for ${photo.filename}`);
+                  resolve();
+                };
+                putRequest.onerror = () => {
+                  console.error(`Failed to update order for ${photo.filename}:`, putRequest.error);
+                  reject(putRequest.error);
+                };
+              } catch (error) {
+                console.error(`Failed to recreate blob for ${photo.filename}:`, error);
+                reject(error);
+              }
             } else {
               console.warn(`Photo ${id} not found in database`);
               resolve();
