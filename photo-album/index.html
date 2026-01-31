@@ -857,19 +857,40 @@
         // Filter out any photos that failed to process
         const validPhotosData = photosData.filter(p => p !== null);
 
-        const exportData = {
-          version: 1,
-          album: {
-            name: album.name,
-            createdAt: album.createdAt,
-          },
-          photos: validPhotosData,
-          exportedAt: Date.now(),
-        };
+        // Build JSON incrementally to avoid string length limits
+        // This prevents RangeError when exporting large albums with videos
+        const jsonParts = [];
 
-        // Create and download JSON file
-        const json = JSON.stringify(exportData, null, 2);
-        const blob = new Blob([json], { type: "application/json" });
+        // Opening
+        jsonParts.push('{\n  "version": 1,\n  "album": ');
+        jsonParts.push(JSON.stringify({
+          name: album.name,
+          createdAt: album.createdAt,
+        }, null, 2).split('\n').map((line, i) => i === 0 ? line : '  ' + line).join('\n'));
+        jsonParts.push(',\n  "photos": [\n');
+
+        // Photos array - stringify each photo separately to avoid holding entire JSON in memory
+        for (let i = 0; i < validPhotosData.length; i++) {
+          const photoJson = JSON.stringify(validPhotosData[i], null, 2);
+          // Indent each line by 4 spaces
+          const indentedPhotoJson = photoJson.split('\n').map((line, lineIdx) =>
+            lineIdx === 0 ? '    ' + line : '    ' + line
+          ).join('\n');
+          jsonParts.push(indentedPhotoJson);
+          if (i < validPhotosData.length - 1) {
+            jsonParts.push(',\n');
+          } else {
+            jsonParts.push('\n');
+          }
+        }
+
+        // Closing
+        jsonParts.push('  ],\n  "exportedAt": ');
+        jsonParts.push(JSON.stringify(Date.now()));
+        jsonParts.push('\n}');
+
+        // Create blob from parts - this avoids the string length limit
+        const blob = new Blob(jsonParts, { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
