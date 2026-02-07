@@ -475,6 +475,18 @@
             <span class="hint">Auto is usually correct.</span>
           </label>
 
+          <label>
+            Anthropic API key
+            <input
+              id="anthropicKey"
+              type="password"
+              inputmode="text"
+              autocomplete="off"
+              placeholder="Paste your Anthropic API key (optional)"
+            />
+            <span class="hint">Enables AI-generated in-character posts instead of placeholders. Saved locally.</span>
+          </label>
+
           <div>
             <div style="font-weight: 650; margin-bottom: 6px">Build an account</div>
             <div class="hint" style="margin-bottom: 10px">
@@ -558,6 +570,7 @@
         setupForm: /** @type {HTMLFormElement} */ (document.getElementById("setupForm")),
         tmdbKey: /** @type {HTMLInputElement} */ (document.getElementById("tmdbKey")),
         tmdbKeyKind: /** @type {HTMLSelectElement} */ (document.getElementById("tmdbKeyKind")),
+        anthropicKey: /** @type {HTMLInputElement} */ (document.getElementById("anthropicKey")),
         setupStatus: /** @type {HTMLDivElement} */ (document.getElementById("setupStatus")),
         seriesQuery: /** @type {HTMLInputElement} */ (document.getElementById("seriesQuery")),
         seriesPick: /** @type {HTMLSelectElement} */ (document.getElementById("seriesPick")),
@@ -614,17 +627,18 @@
       function loadPrefs() {
         try {
           const raw = localStorage.getItem(LS_KEY) || localStorage.getItem(LEGACY_LS_KEY);
-          if (!raw) return { tmdbKey: "", tmdbKeyKind: "auto", accounts: [], slots: [] };
+          if (!raw) return { tmdbKey: "", tmdbKeyKind: "auto", anthropicKey: "", accounts: [], slots: [] };
           const parsed = JSON.parse(raw);
           return {
             tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
             tmdbKeyKind: typeof parsed.tmdbKeyKind === "string" ? parsed.tmdbKeyKind : "auto",
+            anthropicKey: typeof parsed.anthropicKey === "string" ? parsed.anthropicKey : "",
             accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
             // legacy
             slots: Array.isArray(parsed.slots) ? parsed.slots : [],
           };
         } catch {
-          return { tmdbKey: "", tmdbKeyKind: "auto", accounts: [], slots: [] };
+          return { tmdbKey: "", tmdbKeyKind: "auto", anthropicKey: "", accounts: [], slots: [] };
         }
       }
 
@@ -1067,14 +1081,115 @@
         render();
       }
 
+      /**
+       * Call the Anthropic Messages API to generate in-character posts.
+       * @param {string} characterName
+       * @param {string} seriesName
+       * @param {number} count
+       * @returns {Promise<string[]>} Array of post texts
+       */
+      async function generateCharacterPosts(characterName, seriesName, count) {
+        const apiKey = safeTrim(el.anthropicKey.value);
+        if (!apiKey) throw new Error("Missing Anthropic API key.");
+
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 2048,
+            system: `You are ${characterName} from the TV show ${seriesName}.\n\nGenerate social media posts as this character would write them. The posts should:\n- Sound natural and in-character\n- Reference events, relationships, and personality traits from the show\n- Vary in tone (some funny, some thoughtful, some mundane)\n- Be 1-3 sentences each\n- NOT break the fourth wall or reference being a TV character\n\nReturn a JSON array of objects, each with a "text" field. No other text.`,
+            messages: [{ role: "user", content: `Generate ${count} social media posts.` }],
+          }),
+        });
+
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const body = await res.json();
+            detail = safeTrim(body?.error?.message) || "";
+          } catch { /* ignore */ }
+          throw new Error(`Anthropic API error (${res.status}). ${detail}`.trim());
+        }
+
+        const data = await res.json();
+        const text = safeTrim(data?.content?.[0]?.text);
+        if (!text) throw new Error("Empty response from Anthropic API.");
+
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed)) throw new Error("Response was not a JSON array.");
+        return parsed.map((item) => safeTrim(item?.text)).filter(Boolean);
+      }
+
       async function generateFeedAsync() {
         isGenerating = true;
         render();
         // Let the browser paint the loading state first.
         await new Promise((r) => setTimeout(r, 0));
-        posts = generatePostsEvenly(100);
+
+        const hasAnthropicKey = Boolean(safeTrim(el.anthropicKey.value));
+
+        if (!hasAnthropicKey || !accounts.length) {
+          // Placeholder fallback.
+          posts = generatePostsEvenly(100);
+          isGenerating = false;
+          render();
+          return;
+        }
+
+        // AI generation: generate posts per character sequentially.
+        const safeUsers = users.length ? users : [...defaultUsers];
+        const total = 100;
+        const per = Math.floor(total / safeUsers.length);
+        const rem = total % safeUsers.length;
+        const day0 = startOfDay(Date.now());
+
+        /** @type {Post[]} */
+        let allPosts = [];
+        let errors = 0;
+
+        for (let i = 0; i < safeUsers.length; i++) {
+          const u = safeUsers[i];
+          const count = per + (i < rem ? 1 : 0);
+          const acct = accounts[i];
+          const seriesName = acct?.seriesName || "Unknown";
+
+          setStatus(`Generating posts… (${i}/${safeUsers.length} done)`);
+          await new Promise((r) => setTimeout(r, 0)); // Let browser paint.
+
+          // Generate timestamps first (reuse existing logic).
+          const timePosts = generatePostsForUser(u.id, count, day0);
+
+          try {
+            const aiTexts = await generateCharacterPosts(u.name, seriesName, count);
+            // Assign AI text to the pre-generated timestamp posts.
+            for (let j = 0; j < timePosts.length; j++) {
+              if (j < aiTexts.length) {
+                timePosts[j].text = aiTexts[j];
+              }
+              // If fewer AI texts than posts, remaining keep placeholder text.
+            }
+          } catch (e) {
+            errors++;
+            console.warn(`Failed to generate posts for ${u.name}:`, e);
+            // Keep placeholder text for this character.
+          }
+
+          allPosts = allPosts.concat(timePosts);
+        }
+
+        allPosts.sort((a, b) => b.createdAt - a.createdAt);
+        posts = allPosts.slice(0, total);
         isGenerating = false;
         render();
+
+        const msg = `Generated ${safeUsers.length} accounts.`;
+        setStatus(errors ? `${msg} ${errors} failed (using placeholders).` : msg);
       }
 
       // Initial render.
@@ -1087,11 +1202,13 @@
       const prefs = loadPrefs();
       if (prefs.tmdbKey) el.tmdbKey.value = prefs.tmdbKey;
       if (prefs.tmdbKeyKind) el.tmdbKeyKind.value = prefs.tmdbKeyKind;
+      if (prefs.anthropicKey) el.anthropicKey.value = prefs.anthropicKey;
 
       function persist() {
         savePrefs({
           tmdbKey: safeTrim(el.tmdbKey.value),
           tmdbKeyKind: safeTrim(el.tmdbKeyKind.value) || "auto",
+          anthropicKey: safeTrim(el.anthropicKey.value),
           accounts,
         });
       }
@@ -1125,6 +1242,7 @@
 
       el.tmdbKey.addEventListener("change", () => persist());
       el.tmdbKeyKind.addEventListener("change", () => persist());
+      el.anthropicKey.addEventListener("change", () => persist());
       el.tmdbKey.addEventListener("input", () => {
         if (el.tmdbKeyKind.value === "auto") {
           const guess = guessKeyKind(el.tmdbKey.value);
@@ -1297,8 +1415,6 @@
         users = accountsToUsers();
         applyState();
         await generateFeedAsync();
-        const missing = users.reduce((n, u) => n + (u.hasPersonality ? 0 : 1), 0);
-        setStatus(`Generated ${users.length} accounts (${missing ? `${missing} no personality` : "all matched"}).`);
         persist();
       });
 
