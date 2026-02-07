@@ -1404,7 +1404,29 @@
         if (!card) return;
         const idx = Number(card.getAttribute("data-account-idx"));
         if (!Number.isFinite(idx) || idx < 0 || idx >= accounts.length) return;
+
+        // Build a mapping from old user IDs to new user IDs after removal.
+        // User IDs are positional (u1, u2, ...), so removing an account shifts them.
+        const oldIds = accounts.filter((a) => a.characterName).map((_, i) => `u${i + 1}`);
+        const removedUserId = oldIds[idx];
         const removed = accounts.splice(idx, 1);
+        const newIds = accounts.filter((a) => a.characterName).map((_, i) => `u${i + 1}`);
+
+        // Remove posts from the deleted character, re-map remaining post userIds.
+        /** @type {Map<string, string>} */
+        const idMap = new Map();
+        let ni = 0;
+        for (let oi = 0; oi < oldIds.length; oi++) {
+          if (oldIds[oi] === removedUserId) continue;
+          idMap.set(oldIds[oi], newIds[ni++]);
+        }
+        posts = posts
+          .filter((p) => p.userId !== removedUserId)
+          .map((p) => ({ ...p, userId: idMap.get(p.userId) || p.userId }));
+
+        users = accountsToUsers();
+        rebuildUsersIndex();
+        render();
         persist();
         renderAccounts();
         if (removed[0]?.characterName) setStatus(`Removed: ${removed[0].characterName}`);
