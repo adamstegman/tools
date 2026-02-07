@@ -1118,8 +1118,11 @@
         }
 
         const data = await res.json();
-        const text = safeTrim(data?.content?.[0]?.text);
+        let text = safeTrim(data?.content?.[0]?.text);
         if (!text) throw new Error("Empty response from Anthropic API.");
+
+        // Strip markdown code fences if present (e.g. ```json ... ```).
+        text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
 
         const parsed = JSON.parse(text);
         if (!Array.isArray(parsed)) throw new Error("Response was not a JSON array.");
