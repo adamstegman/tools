@@ -627,18 +627,19 @@
       function loadPrefs() {
         try {
           const raw = localStorage.getItem(LS_KEY) || localStorage.getItem(LEGACY_LS_KEY);
-          if (!raw) return { tmdbKey: "", tmdbKeyKind: "auto", anthropicKey: "", accounts: [], slots: [] };
+          if (!raw) return { tmdbKey: "", tmdbKeyKind: "auto", anthropicKey: "", accounts: [], posts: [], slots: [] };
           const parsed = JSON.parse(raw);
           return {
             tmdbKey: typeof parsed.tmdbKey === "string" ? parsed.tmdbKey : "",
             tmdbKeyKind: typeof parsed.tmdbKeyKind === "string" ? parsed.tmdbKeyKind : "auto",
             anthropicKey: typeof parsed.anthropicKey === "string" ? parsed.anthropicKey : "",
             accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+            posts: Array.isArray(parsed.posts) ? parsed.posts : [],
             // legacy
             slots: Array.isArray(parsed.slots) ? parsed.slots : [],
           };
         } catch {
-          return { tmdbKey: "", tmdbKeyKind: "auto", anthropicKey: "", accounts: [], slots: [] };
+          return { tmdbKey: "", tmdbKeyKind: "auto", anthropicKey: "", accounts: [], posts: [], slots: [] };
         }
       }
 
@@ -1138,27 +1139,28 @@
         const hasAnthropicKey = Boolean(safeTrim(el.anthropicKey.value));
 
         if (!hasAnthropicKey || !accounts.length) {
-          // Placeholder fallback.
-          posts = generatePostsEvenly(100);
+          // Placeholder fallback — append new placeholder posts.
+          const newPosts = generatePostsEvenly(100);
+          posts = posts.concat(newPosts);
+          posts.sort((a, b) => b.createdAt - a.createdAt);
           isGenerating = false;
           render();
+          persist();
           return;
         }
 
         // AI generation: generate posts per character sequentially.
+        // New posts get timestamps starting from "now" so they appear more recent.
         const safeUsers = users.length ? users : [...defaultUsers];
-        const total = 100;
-        const per = Math.floor(total / safeUsers.length);
-        const rem = total % safeUsers.length;
+        const postsPerChar = 15;
         const day0 = startOfDay(Date.now());
 
         /** @type {Post[]} */
-        let allPosts = [];
+        let newPosts = [];
         let errors = 0;
 
         for (let i = 0; i < safeUsers.length; i++) {
           const u = safeUsers[i];
-          const count = per + (i < rem ? 1 : 0);
           const acct = accounts[i];
           const seriesName = acct?.seriesName || "Unknown";
 
@@ -1166,16 +1168,15 @@
           await new Promise((r) => setTimeout(r, 0)); // Let browser paint.
 
           // Generate timestamps first (reuse existing logic).
-          const timePosts = generatePostsForUser(u.id, count, day0);
+          const timePosts = generatePostsForUser(u.id, postsPerChar, day0);
 
           try {
-            const aiTexts = await generateCharacterPosts(u.name, seriesName, count);
+            const aiTexts = await generateCharacterPosts(u.name, seriesName, postsPerChar);
             // Assign AI text to the pre-generated timestamp posts.
             for (let j = 0; j < timePosts.length; j++) {
               if (j < aiTexts.length) {
                 timePosts[j].text = aiTexts[j];
               }
-              // If fewer AI texts than posts, remaining keep placeholder text.
             }
           } catch (e) {
             errors++;
@@ -1183,15 +1184,18 @@
             // Keep placeholder text for this character.
           }
 
-          allPosts = allPosts.concat(timePosts);
+          newPosts = newPosts.concat(timePosts);
         }
 
-        allPosts.sort((a, b) => b.createdAt - a.createdAt);
-        posts = allPosts.slice(0, total);
+        // Append new posts to existing ones and re-sort.
+        posts = posts.concat(newPosts);
+        posts.sort((a, b) => b.createdAt - a.createdAt);
         isGenerating = false;
         render();
+        persist();
 
-        const msg = `Generated ${safeUsers.length} accounts.`;
+        const added = newPosts.length;
+        const msg = `Added ${added} posts (${safeUsers.length} characters).`;
         setStatus(errors ? `${msg} ${errors} failed (using placeholders).` : msg);
       }
 
@@ -1213,6 +1217,7 @@
           tmdbKeyKind: safeTrim(el.tmdbKeyKind.value) || "auto",
           anthropicKey: safeTrim(el.anthropicKey.value),
           accounts,
+          posts,
         });
       }
 
@@ -1235,10 +1240,15 @@
       accounts = Array.isArray(prefs.accounts) && prefs.accounts.length ? prefs.accounts : migrateLegacySlotsToAccounts();
       renderAccounts();
 
-      // On load, generate the feed from saved data (if any).
+      // On load, restore saved posts or generate new ones.
       users = accountsToUsers();
+      if (prefs.posts.length) {
+        posts = prefs.posts;
+      }
       applyState();
-      void generateFeedAsync();
+      if (!posts.length) {
+        void generateFeedAsync();
+      }
 
       // builder initial state
       renderBuilder();
