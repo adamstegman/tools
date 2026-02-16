@@ -481,15 +481,17 @@
       }
 
       /**
-       * Simulate balance year by year.
+       * Simulate balance year by year using nominal growth.
+       * Withdrawals inflate each year from the current year.
        * @param {object} p
        * @param {number} p.startAge
        * @param {number} p.assets
        * @param {number} p.monthlyContrib
-       * @param {number} p.realGrowth - Real annual growth factor
+       * @param {number} p.nominalGrowth - Nominal annual growth factor (e.g. 1.10)
+       * @param {number} p.inflationRate - Annual inflation factor (e.g. 1.03)
        * @param {number} [p.stopContribAge] - Age to stop contributions (for Coast FIRE)
        * @param {number} [p.retireAge] - Age to start withdrawals
-       * @param {number} [p.annualWithdrawal] - Annual withdrawal in today's dollars
+       * @param {number} [p.baseAnnualWithdrawal] - Annual withdrawal in today's dollars (inflated from startAge)
        * @param {number} p.endAge
        * @returns {number[]} Balance at each age from startAge to endAge
        */
@@ -497,24 +499,30 @@
         startAge,
         assets,
         monthlyContrib,
-        realGrowth,
+        nominalGrowth,
+        inflationRate,
         stopContribAge,
         retireAge,
-        annualWithdrawal,
+        baseAnnualWithdrawal,
         endAge,
       }) {
         const balances = [assets];
         let balance = assets;
+        const monthlyGrowth = Math.pow(nominalGrowth, 1 / 12);
         for (let age = startAge; age < endAge; age++) {
           const contributing =
             stopContribAge === undefined || age < stopContribAge;
           const withdrawing =
             retireAge !== undefined &&
-            annualWithdrawal !== undefined &&
+            baseAnnualWithdrawal !== undefined &&
             age >= retireAge;
 
-          // Monthly simulation for the year
-          const monthlyGrowth = Math.pow(realGrowth, 1 / 12);
+          // Withdrawal inflated from startAge (year 0 = startAge)
+          const yearsFromStart = age - startAge;
+          const annualWithdrawal = baseAnnualWithdrawal
+            ? baseAnnualWithdrawal * Math.pow(inflationRate, yearsFromStart)
+            : 0;
+
           for (let m = 0; m < 12; m++) {
             balance *= monthlyGrowth;
             if (contributing) balance += monthlyContrib;
@@ -684,29 +692,38 @@
         const inflationPct = +$("#coast-inflation").value;
         const withdrawalPct = +$("#coast-withdrawal").value;
 
-        const rg = realFactor(growthPct, inflationPct);
-        const target = goalIncome / (withdrawalPct / 100);
+        const ng = 1 + growthPct / 100;
+        const inf = 1 + inflationPct / 100;
+        const baseTarget = goalIncome / (withdrawalPct / 100);
         const endAge = 100;
 
+        /**
+         * Inflation-adjusted target at a given age.
+         * @param {number} age
+         * @returns {number}
+         */
+        const targetAtAge = (age) =>
+          baseTarget * Math.pow(inf, age - startAge);
+
         // Find coast age: earliest age where accumulated balance, growing
-        // without contributions, reaches target by some age <= 100.
+        // without contributions at nominal rate, reaches the inflation-adjusted
+        // target by some age <= 100.
         let coastAge = null;
         let fireAge = null;
-        let balance = assets;
 
         // First pass: simulate with contributions to find coast age and FIRE age
-        const monthlyGrowth = Math.pow(rg, 1 / 12);
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
         let tempBalance = assets;
         for (let age = startAge; age < endAge; age++) {
           // Check: if we stop now, when does balance reach target?
           let projected = tempBalance;
           let reachAge = null;
           for (let futureAge = age; futureAge < endAge; futureAge++) {
-            if (projected >= target) {
+            if (projected >= targetAtAge(futureAge)) {
               reachAge = futureAge;
               break;
             }
-            projected *= rg;
+            projected *= ng;
           }
           if (reachAge !== null && coastAge === null) {
             coastAge = age;
@@ -719,19 +736,22 @@
           }
         }
 
-        // "With contributions" line: keep contributing until target is hit,
-        // then retire and withdraw
+        // "With contributions" line: keep contributing until inflation-adjusted
+        // target is hit, then retire and withdraw (withdrawals inflate yearly)
         let contribFireAge = null;
-        balance = assets;
+        let balance = assets;
         const balancesWithContrib = [balance];
         for (let age = startAge; age < endAge; age++) {
-          if (balance >= target && contribFireAge === null) {
+          if (balance >= targetAtAge(age) && contribFireAge === null) {
             contribFireAge = age;
           }
+          const yearsFromStart = age - startAge;
+          const annualWithdrawal =
+            goalIncome * Math.pow(inf, yearsFromStart);
           for (let m = 0; m < 12; m++) {
             balance *= monthlyGrowth;
             if (contribFireAge === null) balance += monthlyContrib;
-            else balance -= goalIncome / 12;
+            else balance -= annualWithdrawal / 12;
           }
           if (balance < 0) balance = 0;
           balancesWithContrib.push(balance);
@@ -744,10 +764,11 @@
             startAge,
             assets,
             monthlyContrib,
-            realGrowth: rg,
+            nominalGrowth: ng,
+            inflationRate: inf,
             stopContribAge: coastAge,
             retireAge: fireAge,
-            annualWithdrawal: goalIncome,
+            baseAnnualWithdrawal: goalIncome,
             endAge,
           });
         }
@@ -755,8 +776,9 @@
         // Results
         const resultsEl = $("#coast-results");
         let html = "<h3>Results</h3>";
-        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(target)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
         if (coastAge !== null) {
+          html += `<div class="result-item"><span class="result-label">Target at FIRE age (inflation-adjusted)</span><span class="result-value">${fmt(targetAtAge(fireAge))}</span></div>`;
           html += `<div class="result-item"><span class="result-label">Coast age (stop contributing)</span><span class="result-value ok">${coastAge}</span></div>`;
           html += `<div class="result-item"><span class="result-label">FIRE age (can retire)</span><span class="result-value ok">${fireAge}</span></div>`;
           html += `<div class="result-item"><span class="result-label">Years of contributions needed</span><span class="result-value">${coastAge - startAge}</span></div>`;
@@ -774,15 +796,7 @@
             label: "With contributions",
           },
         ];
-        const markers = [
-          {
-            age: 0,
-            color: "transparent",
-            label: "",
-          },
-        ];
-        // Clear placeholder marker
-        markers.length = 0;
+        const markers = [];
 
         if (coastBalances) {
           seriesData.push({
@@ -802,12 +816,15 @@
           });
         }
 
-        // Add target line as a flat series
-        const targetLine = new Array(endAge - startAge + 1).fill(target);
+        // Add inflation-adjusted target line
+        const targetLine = [];
+        for (let age = startAge; age <= endAge; age++) {
+          targetLine.push(targetAtAge(age));
+        }
         seriesData.push({
           data: targetLine,
           color: "#b00020",
-          label: `Target: ${fmt(target)}`,
+          label: `Target: ${fmt(baseTarget)} (inflation-adjusted)`,
         });
 
         drawChart($("#coast-chart"), {
@@ -838,37 +855,46 @@
         const inflationPct = +$("#standard-inflation").value;
         const withdrawalPct = +$("#standard-withdrawal").value;
 
-        const rg = realFactor(growthPct, inflationPct);
-        const target = goalIncome / (withdrawalPct / 100);
+        const ng = 1 + growthPct / 100;
+        const inf = 1 + inflationPct / 100;
+        const baseTarget = goalIncome / (withdrawalPct / 100);
         const endAge = 100;
 
-        // Simulate with contributions until target is reached, then withdraw
-        const monthlyGrowth = Math.pow(rg, 1 / 12);
+        const targetAtAge = (age) =>
+          baseTarget * Math.pow(inf, age - startAge);
+
+        // Simulate with contributions until inflation-adjusted target is
+        // reached, then withdraw with inflation-adjusted withdrawals
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
         let balance = assets;
         let fireAge = null;
         const balances = [balance];
 
         for (let age = startAge; age < endAge; age++) {
-          if (balance >= target && fireAge === null) {
+          if (balance >= targetAtAge(age) && fireAge === null) {
             fireAge = age;
           }
+          const yearsFromStart = age - startAge;
+          const annualWithdrawal =
+            goalIncome * Math.pow(inf, yearsFromStart);
           for (let m = 0; m < 12; m++) {
             balance *= monthlyGrowth;
             if (fireAge === null) balance += monthlyContrib;
-            else balance -= goalIncome / 12;
+            else balance -= annualWithdrawal / 12;
           }
           if (balance < 0) balance = 0;
           balances.push(balance);
         }
-        if (balance >= target && fireAge === null) {
+        if (balance >= targetAtAge(endAge) && fireAge === null) {
           fireAge = endAge;
         }
 
         // Results
         const resultsEl = $("#standard-results");
         let html = "<h3>Results</h3>";
-        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(target)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
         if (fireAge !== null) {
+          html += `<div class="result-item"><span class="result-label">Target at FIRE age (inflation-adjusted)</span><span class="result-value">${fmt(targetAtAge(fireAge))}</span></div>`;
           html += `<div class="result-item"><span class="result-label">FIRE age</span><span class="result-value ok">${fireAge}</span></div>`;
           html += `<div class="result-item"><span class="result-label">Years until FIRE</span><span class="result-value">${fireAge - startAge}</span></div>`;
           html += `<div class="result-item"><span class="result-label">Balance at FIRE age</span><span class="result-value">${fmt(balances[fireAge - startAge])}</span></div>`;
@@ -878,14 +904,17 @@
         }
         resultsEl.innerHTML = html;
 
-        // Chart
-        const targetLine = new Array(endAge - startAge + 1).fill(target);
+        // Chart — target line grows with inflation
+        const targetLine = [];
+        for (let age = startAge; age <= endAge; age++) {
+          targetLine.push(targetAtAge(age));
+        }
         const seriesData = [
           { data: balances, color: "#4a90d9", label: "Balance" },
           {
             data: targetLine,
             color: "#b00020",
-            label: `Target: ${fmt(target)}`,
+            label: `Target: ${fmt(baseTarget)} (inflation-adjusted)`,
           },
         ];
         const markers = [];
@@ -926,19 +955,25 @@
         const inflationPct = +$("#retirement-inflation").value;
         const withdrawalPct = +$("#retirement-withdrawal").value;
 
-        const rg = realFactor(growthPct, inflationPct);
-        const target = goalIncome / (withdrawalPct / 100);
+        const ng = 1 + growthPct / 100;
+        const inf = 1 + inflationPct / 100;
+        const baseTarget = goalIncome / (withdrawalPct / 100);
         const endAge = 100;
 
+        const targetAtAge = (age) =>
+          baseTarget * Math.pow(inf, age - startAge);
+
         // Simulate: contribute until target retirement age, then withdraw
+        // with inflation-adjusted withdrawals
         const balances = simulate({
           startAge,
           assets,
           monthlyContrib,
-          realGrowth: rg,
+          nominalGrowth: ng,
+          inflationRate: inf,
           stopContribAge: targetRetireAge,
           retireAge: targetRetireAge,
-          annualWithdrawal: goalIncome,
+          baseAnnualWithdrawal: goalIncome,
           endAge,
         });
 
@@ -947,6 +982,7 @@
           retireIdx >= 0 && retireIdx < balances.length
             ? balances[retireIdx]
             : 0;
+        const targetAtRetirement = targetAtAge(targetRetireAge);
 
         // Find when money runs out
         let runsOutAge = null;
@@ -964,9 +1000,10 @@
         // Results
         const resultsEl = $("#retirement-results");
         let html = "<h3>Results</h3>";
-        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(target)}</span></div>`;
-        html += `<div class="result-item"><span class="result-label">Balance at retirement (age ${targetRetireAge})</span><span class="result-value ${balanceAtRetirement >= target ? "ok" : ""}">${fmt(balanceAtRetirement)}</span></div>`;
-        html += `<div class="result-item"><span class="result-label">Annual withdrawal (today's dollars)</span><span class="result-value">${fmt(goalIncome)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Target at retirement (inflation-adjusted)</span><span class="result-value">${fmt(targetAtRetirement)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Balance at retirement (age ${targetRetireAge})</span><span class="result-value ${balanceAtRetirement >= targetAtRetirement ? "ok" : ""}">${fmt(balanceAtRetirement)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Annual withdrawal at retirement</span><span class="result-value">${fmt(goalIncome * Math.pow(inf, targetRetireAge - startAge))}</span></div>`;
         if (runsOutAge) {
           html += `<div class="result-item"><span class="result-label">Money runs out at age</span><span class="result-value danger">${runsOutAge}</span></div>`;
           html += `<div class="result-item"><span class="result-label">Savings last</span><span class="result-value danger">${lastsYears} years</span></div>`;
@@ -975,14 +1012,17 @@
         }
         resultsEl.innerHTML = html;
 
-        // Chart
-        const targetLine = new Array(endAge - startAge + 1).fill(target);
+        // Chart — target line grows with inflation
+        const targetLine = [];
+        for (let age = startAge; age <= endAge; age++) {
+          targetLine.push(targetAtAge(age));
+        }
         const seriesData = [
           { data: balances, color: "#4a90d9", label: "Balance" },
           {
             data: targetLine,
             color: "#b00020",
-            label: `Target: ${fmt(target)}`,
+            label: `Target: ${fmt(baseTarget)} (inflation-adjusted)`,
           },
         ];
         const markers = [
