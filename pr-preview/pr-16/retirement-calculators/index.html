@@ -694,13 +694,12 @@
         let fireAge = null;
         let balance = assets;
 
-        // Simulate with contributions, checking at each age
+        // First pass: simulate with contributions to find coast age and FIRE age
         const monthlyGrowth = Math.pow(rg, 1 / 12);
-        const balancesWithContrib = [balance];
-
+        let tempBalance = assets;
         for (let age = startAge; age < endAge; age++) {
           // Check: if we stop now, when does balance reach target?
-          let projected = balance;
+          let projected = tempBalance;
           let reachAge = null;
           for (let futureAge = age; futureAge < endAge; futureAge++) {
             if (projected >= target) {
@@ -714,15 +713,31 @@
             fireAge = reachAge;
           }
 
-          // Grow one year with contributions
+          for (let m = 0; m < 12; m++) {
+            tempBalance *= monthlyGrowth;
+            tempBalance += monthlyContrib;
+          }
+        }
+
+        // "With contributions" line: keep contributing until target is hit,
+        // then retire and withdraw
+        let contribFireAge = null;
+        balance = assets;
+        const balancesWithContrib = [balance];
+        for (let age = startAge; age < endAge; age++) {
+          if (balance >= target && contribFireAge === null) {
+            contribFireAge = age;
+          }
           for (let m = 0; m < 12; m++) {
             balance *= monthlyGrowth;
-            balance += monthlyContrib;
+            if (contribFireAge === null) balance += monthlyContrib;
+            else balance -= goalIncome / 12;
           }
+          if (balance < 0) balance = 0;
           balancesWithContrib.push(balance);
         }
 
-        // Also simulate coast scenario (contribute until coastAge, then stop)
+        // Coast scenario: contribute until coastAge, then stop; withdraw after fireAge
         let coastBalances = null;
         if (coastAge !== null) {
           coastBalances = simulate({
@@ -731,6 +746,8 @@
             monthlyContrib,
             realGrowth: rg,
             stopContribAge: coastAge,
+            retireAge: fireAge,
+            annualWithdrawal: goalIncome,
             endAge,
           });
         }
@@ -825,7 +842,7 @@
         const target = goalIncome / (withdrawalPct / 100);
         const endAge = 100;
 
-        // Simulate with contributions until target is reached
+        // Simulate with contributions until target is reached, then withdraw
         const monthlyGrowth = Math.pow(rg, 1 / 12);
         let balance = assets;
         let fireAge = null;
@@ -838,6 +855,7 @@
           for (let m = 0; m < 12; m++) {
             balance *= monthlyGrowth;
             if (fireAge === null) balance += monthlyContrib;
+            else balance -= goalIncome / 12;
           }
           if (balance < 0) balance = 0;
           balances.push(balance);
