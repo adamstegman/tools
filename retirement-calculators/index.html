@@ -963,26 +963,40 @@
         const targetAtAge = (age) =>
           baseTarget * Math.pow(inf, age - startAge);
 
-        // Simulate: contribute until target retirement age, then withdraw
-        // with inflation-adjusted withdrawals
-        const balances = simulate({
-          startAge,
-          assets,
-          monthlyContrib,
-          nominalGrowth: ng,
-          inflationRate: inf,
-          stopContribAge: targetRetireAge,
-          retireAge: targetRetireAge,
-          baseAnnualWithdrawal: goalIncome,
-          endAge,
-        });
+        // Phase 1: accumulate until retirement age
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
+        let balance = assets;
+        const balances = [balance];
+        for (let age = startAge; age < Math.min(targetRetireAge, endAge); age++) {
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            balance += monthlyContrib;
+          }
+          balances.push(balance);
+        }
 
         const retireIdx = targetRetireAge - startAge;
-        const balanceAtRetirement =
-          retireIdx >= 0 && retireIdx < balances.length
-            ? balances[retireIdx]
-            : 0;
+        const balanceAtRetirement = balance;
         const targetAtRetirement = targetAtAge(targetRetireAge);
+
+        // First-year withdrawal = balance at retirement * withdrawal rate
+        const firstYearWithdrawal = balanceAtRetirement * (withdrawalPct / 100);
+        // Goal income inflation-adjusted to retirement
+        const goalIncomeAtRetirement =
+          goalIncome * Math.pow(inf, targetRetireAge - startAge);
+
+        // Phase 2: withdraw (first-year amount, then inflate each year)
+        for (let age = targetRetireAge; age < endAge; age++) {
+          const yearsInRetirement = age - targetRetireAge;
+          const annualWithdrawal =
+            firstYearWithdrawal * Math.pow(inf, yearsInRetirement);
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            balance -= annualWithdrawal / 12;
+          }
+          if (balance < 0) balance = 0;
+          balances.push(balance);
+        }
 
         // Find when money runs out
         let runsOutAge = null;
@@ -997,13 +1011,16 @@
           ? runsOutAge - targetRetireAge
           : endAge - targetRetireAge + "+";
 
+        const meetsGoal = firstYearWithdrawal >= goalIncomeAtRetirement;
+
         // Results
         const resultsEl = $("#retirement-results");
         let html = "<h3>Results</h3>";
         html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
         html += `<div class="result-item"><span class="result-label">Target at retirement (inflation-adjusted)</span><span class="result-value">${fmt(targetAtRetirement)}</span></div>`;
         html += `<div class="result-item"><span class="result-label">Balance at retirement (age ${targetRetireAge})</span><span class="result-value ${balanceAtRetirement >= targetAtRetirement ? "ok" : ""}">${fmt(balanceAtRetirement)}</span></div>`;
-        html += `<div class="result-item"><span class="result-label">Annual withdrawal at retirement</span><span class="result-value">${fmt(goalIncome * Math.pow(inf, targetRetireAge - startAge))}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Annual withdrawal at retirement (${withdrawalPct}% of balance)</span><span class="result-value">${fmt(firstYearWithdrawal)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Goal income at retirement (inflation-adjusted)</span><span class="result-value ${meetsGoal ? "ok" : "danger"}">${fmt(goalIncomeAtRetirement)}</span></div>`;
         if (runsOutAge) {
           html += `<div class="result-item"><span class="result-label">Money runs out at age</span><span class="result-value danger">${runsOutAge}</span></div>`;
           html += `<div class="result-item"><span class="result-label">Savings last</span><span class="result-value danger">${lastsYears} years</span></div>`;
