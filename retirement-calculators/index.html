@@ -1057,10 +1057,43 @@
         $("#retirement-legend").innerHTML = legendHTML(legendItems);
       }
 
+      // ── Shared field syncing ──
+
+      /** Field suffixes shared across all three calculators. */
+      const sharedFields = [
+        "age",
+        "assets",
+        "income",
+        "contributions",
+        "growth",
+        "inflation",
+        "withdrawal",
+      ];
+      const prefixes = ["coast", "standard", "retirement"];
+
+      /**
+       * Copy shared field values from the source calculator to all others.
+       * @param {string} sourcePrefix
+       */
+      function syncFields(sourcePrefix) {
+        for (const field of sharedFields) {
+          const val = $(`#${sourcePrefix}-${field}`).value;
+          for (const p of prefixes) {
+            if (p !== sourcePrefix) {
+              $(`#${p}-${field}`).value = val;
+            }
+          }
+        }
+      }
+
       // ── Tab Switching ──
 
       $$(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
+          // Sync values from the currently active calculator before switching
+          const prev = $(".tab.active").dataset.tab;
+          syncFields(prev);
+
           $$(".tab").forEach((t) => t.classList.remove("active"));
           $$(".calculator").forEach((c) => c.classList.remove("active"));
           tab.classList.add("active");
