@@ -955,9 +955,11 @@
               monthlyContrib = 0;
             } else {
               // FV of annuity: c * (mg^n - 1) / (mg - 1)
-              monthlyContrib =
+              // Ceil to next dollar so the simulation always reaches the target
+              monthlyContrib = Math.ceil(
                 (target - assetsAtRetirement) /
-                ((growthFactor - 1) / (monthlyGrowth - 1));
+                ((growthFactor - 1) / (monthlyGrowth - 1)),
+              );
             }
           }
         }
