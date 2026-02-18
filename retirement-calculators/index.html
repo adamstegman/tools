@@ -1,0 +1,1441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Retirement Calculators</title>
+    <meta
+      name="description"
+      content="Coast FIRE, Standard FIRE, and Standard Retirement calculators with interactive graphs."
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: Canvas;
+        --fg: CanvasText;
+        --muted: color-mix(in oklab, CanvasText 65%, Canvas 35%);
+        --card: color-mix(in oklab, Canvas 92%, CanvasText 8%);
+        --border: color-mix(in oklab, CanvasText 18%, Canvas 82%);
+        --accent: Highlight;
+        --accentText: HighlightText;
+        --ok: #0b6b3a;
+        --danger: #b00020;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        --radius: 12px;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
+          Cantarell, Noto Sans, Helvetica, Arial;
+        background: var(--bg);
+        color: var(--fg);
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 4px 0;
+      }
+
+      h1 a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      h1 a:hover {
+        text-decoration: underline;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin: 0 0 24px 0;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 4px;
+        border-bottom: 2px solid var(--border);
+        margin-bottom: 24px;
+      }
+
+      .tab {
+        padding: 10px 20px;
+        border: none;
+        background: none;
+        color: var(--muted);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: color 0.15s, border-color 0.15s;
+      }
+
+      .tab:hover {
+        color: var(--fg);
+      }
+
+      .tab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      .calculator {
+        display: none;
+      }
+
+      .calculator.active {
+        display: block;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 0.875rem;
+        font-weight: 500;
+      }
+
+      input[type="number"] {
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font: inherit;
+        background: var(--bg);
+        color: var(--fg);
+      }
+
+      input[type="number"]:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+      }
+
+      .results {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px;
+        margin-bottom: 24px;
+        box-shadow: var(--shadow);
+      }
+
+      .results h3 {
+        margin: 0 0 12px 0;
+        font-size: 1rem;
+      }
+
+      .result-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .result-item:last-child {
+        border-bottom: none;
+      }
+
+      .result-label {
+        color: var(--muted);
+      }
+
+      .result-value {
+        font-weight: 600;
+      }
+
+      .result-value.ok {
+        color: var(--ok);
+      }
+
+      .result-value.danger {
+        color: var(--danger);
+      }
+
+      .chart-container {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px;
+        box-shadow: var(--shadow);
+        position: relative;
+      }
+
+      .chart-container h3 {
+        margin: 0 0 12px 0;
+        font-size: 1rem;
+      }
+
+      .chart-wrap {
+        position: relative;
+        touch-action: pan-y;
+      }
+
+      canvas {
+        width: 100%;
+        height: 350px;
+        display: block;
+      }
+
+      .chart-crosshair {
+        position: absolute;
+        top: 0;
+        width: 1px;
+        background: var(--fg);
+        opacity: 0.4;
+        pointer-events: none;
+        display: none;
+      }
+
+      .chart-tooltip {
+        position: absolute;
+        top: 8px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        line-height: 1.5;
+        pointer-events: none;
+        display: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        white-space: nowrap;
+        z-index: 10;
+      }
+
+      .chart-tooltip .tt-age {
+        font-weight: 700;
+        margin-bottom: 2px;
+      }
+
+      .chart-tooltip .tt-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .chart-tooltip .tt-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-top: 12px;
+        font-size: 0.8rem;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+
+      @media (max-width: 600px) {
+        body {
+          padding: 16px;
+        }
+        .tabs {
+          flex-wrap: wrap;
+        }
+        .tab {
+          padding: 8px 14px;
+          font-size: 0.9rem;
+        }
+        canvas {
+          height: 260px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1><a href="../">Retirement Calculators</a></h1>
+      <p class="subtitle">
+        Project savings growth and plan for financial independence.
+      </p>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="coast">Coast FIRE</button>
+        <button class="tab" data-tab="standard">Standard FIRE</button>
+        <button class="tab" data-tab="retirement">Standard Retirement</button>
+      </div>
+
+      <!-- Coast FIRE -->
+      <div class="calculator active" id="calc-coast">
+        <div class="form-grid">
+          <label>
+            Current age
+            <input type="number" id="coast-age" value="30" min="1" max="99" inputmode="numeric" />
+          </label>
+          <label>
+            Target retirement age
+            <input
+              type="number"
+              id="coast-target-age"
+              value="65"
+              min="2"
+              max="100"
+              placeholder="auto"
+              inputmode="numeric"
+            />
+          </label>
+          <label>
+            Current assets ($)
+            <input type="number" id="coast-assets" value="50000" min="0" inputmode="decimal" />
+          </label>
+          <label>
+            Goal annual income ($)
+            <input type="number" id="coast-income" value="40000" min="1" inputmode="decimal" />
+          </label>
+          <label>
+            Monthly contributions ($)
+            <input
+              type="number"
+              id="coast-contributions"
+              value="1000"
+              min="0"
+              placeholder="auto"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Growth rate (%)
+            <input
+              type="number"
+              id="coast-growth"
+              value="10"
+              step="0.1"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Inflation rate (%)
+            <input
+              type="number"
+              id="coast-inflation"
+              value="3"
+              step="0.1"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Withdrawal rate (%)
+            <input
+              type="number"
+              id="coast-withdrawal"
+              value="4"
+              step="0.1"
+              min="0.1"
+              inputmode="decimal"
+            />
+          </label>
+        </div>
+        <div class="results" id="coast-results"></div>
+        <div class="chart-container">
+          <h3>Balance Over Time</h3>
+          <div class="chart-wrap">
+            <canvas id="coast-chart"></canvas>
+            <div class="chart-crosshair"></div>
+            <div class="chart-tooltip"></div>
+          </div>
+          <div class="legend" id="coast-legend"></div>
+        </div>
+      </div>
+
+      <!-- Standard FIRE -->
+      <div class="calculator" id="calc-standard">
+        <div class="form-grid">
+          <label>
+            Current age
+            <input
+              type="number"
+              id="standard-age"
+              value="30"
+              min="1"
+              max="99"
+              inputmode="numeric"
+            />
+          </label>
+          <label>
+            Current assets ($)
+            <input type="number" id="standard-assets" value="50000" min="0" inputmode="decimal" />
+          </label>
+          <label>
+            Goal annual income ($)
+            <input type="number" id="standard-income" value="40000" min="1" inputmode="decimal" />
+          </label>
+          <label>
+            Monthly contributions ($)
+            <input
+              type="number"
+              id="standard-contributions"
+              value="1000"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Growth rate (%)
+            <input
+              type="number"
+              id="standard-growth"
+              value="10"
+              step="0.1"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Inflation rate (%)
+            <input
+              type="number"
+              id="standard-inflation"
+              value="3"
+              step="0.1"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Withdrawal rate (%)
+            <input
+              type="number"
+              id="standard-withdrawal"
+              value="4"
+              step="0.1"
+              min="0.1"
+              inputmode="decimal"
+            />
+          </label>
+        </div>
+        <div class="results" id="standard-results"></div>
+        <div class="chart-container">
+          <h3>Balance Over Time</h3>
+          <div class="chart-wrap">
+            <canvas id="standard-chart"></canvas>
+            <div class="chart-crosshair"></div>
+            <div class="chart-tooltip"></div>
+          </div>
+          <div class="legend" id="standard-legend"></div>
+        </div>
+      </div>
+
+      <!-- Standard Retirement -->
+      <div class="calculator" id="calc-retirement">
+        <div class="form-grid">
+          <label>
+            Current age
+            <input
+              type="number"
+              id="retirement-age"
+              value="30"
+              min="1"
+              max="99"
+              inputmode="numeric"
+            />
+          </label>
+          <label>
+            Target retirement age
+            <input
+              type="number"
+              id="retirement-target-age"
+              value="65"
+              min="2"
+              max="100"
+              inputmode="numeric"
+            />
+          </label>
+          <label>
+            Current assets ($)
+            <input
+              type="number"
+              id="retirement-assets"
+              value="50000"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Goal annual income ($)
+            <input
+              type="number"
+              id="retirement-income"
+              value="40000"
+              min="1"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Monthly contributions ($)
+            <input
+              type="number"
+              id="retirement-contributions"
+              value="1000"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Growth rate (%)
+            <input
+              type="number"
+              id="retirement-growth"
+              value="10"
+              step="0.1"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Inflation rate (%)
+            <input
+              type="number"
+              id="retirement-inflation"
+              value="3"
+              step="0.1"
+              min="0"
+              inputmode="decimal"
+            />
+          </label>
+          <label>
+            Withdrawal rate (%)
+            <input
+              type="number"
+              id="retirement-withdrawal"
+              value="4"
+              step="0.1"
+              min="0.1"
+              inputmode="decimal"
+            />
+          </label>
+        </div>
+        <div class="results" id="retirement-results"></div>
+        <div class="chart-container">
+          <h3>Balance Over Time</h3>
+          <div class="chart-wrap">
+            <canvas id="retirement-chart"></canvas>
+            <div class="chart-crosshair"></div>
+            <div class="chart-tooltip"></div>
+          </div>
+          <div class="legend" id="retirement-legend"></div>
+        </div>
+      </div>
+    </main>
+
+    <script type="module">
+      const $ = (sel) => document.querySelector(sel);
+      const $$ = (sel) => document.querySelectorAll(sel);
+
+      /** @param {number} n */
+      function fmt(n) {
+        return "$" + Math.round(n).toLocaleString("en-US");
+      }
+
+      /**
+       * Compute real annual growth factor.
+       * @param {number} nominalPct - Nominal growth rate as percentage
+       * @param {number} inflationPct - Inflation rate as percentage
+       * @returns {number} Real annual growth factor (e.g. 1.068)
+       */
+      function realFactor(nominalPct, inflationPct) {
+        return (1 + nominalPct / 100) / (1 + inflationPct / 100);
+      }
+
+      /**
+       * Simulate balance year by year using nominal growth.
+       * Withdrawals inflate each year from the current year.
+       * @param {object} p
+       * @param {number} p.startAge
+       * @param {number} p.assets
+       * @param {number} p.monthlyContrib
+       * @param {number} p.nominalGrowth - Nominal annual growth factor (e.g. 1.10)
+       * @param {number} p.inflationRate - Annual inflation factor (e.g. 1.03)
+       * @param {number} [p.stopContribAge] - Age to stop contributions (for Coast FIRE)
+       * @param {number} [p.retireAge] - Age to start withdrawals
+       * @param {number} [p.baseAnnualWithdrawal] - Annual withdrawal in today's dollars (inflated from startAge)
+       * @param {number} p.endAge
+       * @returns {number[]} Balance at each age from startAge to endAge
+       */
+      function simulate({
+        startAge,
+        assets,
+        monthlyContrib,
+        nominalGrowth,
+        inflationRate,
+        stopContribAge,
+        retireAge,
+        baseAnnualWithdrawal,
+        endAge,
+      }) {
+        const balances = [assets];
+        let balance = assets;
+        const monthlyGrowth = Math.pow(nominalGrowth, 1 / 12);
+        for (let age = startAge; age < endAge; age++) {
+          const contributing =
+            stopContribAge === undefined || age < stopContribAge;
+          const withdrawing =
+            retireAge !== undefined &&
+            baseAnnualWithdrawal !== undefined &&
+            age >= retireAge;
+
+          // Withdrawal inflated from startAge (year 0 = startAge)
+          const yearsFromStart = age - startAge;
+          const annualWithdrawal = baseAnnualWithdrawal
+            ? baseAnnualWithdrawal * Math.pow(inflationRate, yearsFromStart)
+            : 0;
+
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            if (contributing) balance += monthlyContrib;
+            if (withdrawing) balance -= annualWithdrawal / 12;
+          }
+          if (balance < 0) balance = 0;
+          balances.push(balance);
+        }
+        return balances;
+      }
+
+      // ── Chart Drawing ──
+
+      /**
+       * Draw a line chart on a canvas.
+       * @param {HTMLCanvasElement} canvas
+       * @param {object} opts
+       * @param {number} opts.startAge
+       * @param {number} opts.endAge
+       * @param {{data: number[], color: string, label: string}[]} opts.series
+       * @param {{age: number, color: string, label: string}[]} [opts.markers]
+       */
+      function drawChart(canvas, { startAge, endAge, series, markers = [] }) {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext("2d");
+        ctx.scale(dpr, dpr);
+
+        const w = rect.width;
+        const h = rect.height;
+        const pad = { top: 20, right: 20, bottom: 40, left: 70 };
+        const plotW = w - pad.left - pad.right;
+        const plotH = h - pad.top - pad.bottom;
+
+        const fg = getComputedStyle(canvas).color || "#333";
+        const muted =
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--muted")
+            .trim() || "#999";
+        const border =
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--border")
+            .trim() || "#ddd";
+
+        // Find max value across all series
+        let maxVal = 0;
+        for (const s of series) {
+          for (const v of s.data) {
+            if (v > maxVal) maxVal = v;
+          }
+        }
+        if (maxVal === 0) maxVal = 1000;
+
+        // Round max to a nice number
+        const magnitude = Math.pow(10, Math.floor(Math.log10(maxVal)));
+        maxVal = Math.ceil(maxVal / magnitude) * magnitude;
+
+        const numTicks = 5;
+        const xScale = (age) =>
+          pad.left + ((age - startAge) / (endAge - startAge)) * plotW;
+        const yScale = (val) => pad.top + plotH - (val / maxVal) * plotH;
+
+        // Grid lines and Y-axis labels
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 1;
+        ctx.fillStyle = muted;
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.textAlign = "right";
+        for (let i = 0; i <= numTicks; i++) {
+          const val = (maxVal / numTicks) * i;
+          const y = yScale(val);
+          ctx.beginPath();
+          ctx.moveTo(pad.left, y);
+          ctx.lineTo(w - pad.right, y);
+          ctx.stroke();
+          const label =
+            val >= 1_000_000
+              ? "$" + (val / 1_000_000).toFixed(1) + "M"
+              : val >= 1_000
+                ? "$" + (val / 1_000).toFixed(0) + "K"
+                : "$" + val.toFixed(0);
+          ctx.fillText(label, pad.left - 8, y + 4);
+        }
+
+        // X-axis labels
+        ctx.textAlign = "center";
+        const ageSpan = endAge - startAge;
+        const ageStep =
+          ageSpan <= 20 ? 5 : ageSpan <= 40 ? 5 : ageSpan <= 80 ? 10 : 20;
+        for (
+          let age = Math.ceil(startAge / ageStep) * ageStep;
+          age <= endAge;
+          age += ageStep
+        ) {
+          const x = xScale(age);
+          ctx.fillText(String(age), x, h - pad.bottom + 20);
+          ctx.beginPath();
+          ctx.moveTo(x, pad.top);
+          ctx.lineTo(x, pad.top + plotH);
+          ctx.strokeStyle = border;
+          ctx.stroke();
+        }
+        ctx.fillText("Age", pad.left + plotW / 2, h - 4);
+
+        // Marker lines (vertical dashed)
+        for (const m of markers) {
+          if (m.age < startAge || m.age > endAge) continue;
+          const x = xScale(m.age);
+          ctx.save();
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = m.color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, pad.top);
+          ctx.lineTo(x, pad.top + plotH);
+          ctx.stroke();
+          ctx.restore();
+          ctx.fillStyle = m.color;
+          ctx.font = "bold 11px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(m.label, x, pad.top - 6);
+        }
+
+        // Data lines
+        for (const s of series) {
+          ctx.beginPath();
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 2.5;
+          ctx.lineJoin = "round";
+          for (let i = 0; i < s.data.length; i++) {
+            const x = xScale(startAge + i);
+            const y = yScale(s.data[i]);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+
+        // Store chart metadata for tooltip interaction
+        canvas._chartMeta = { startAge, endAge, series, pad, plotW, plotH, w, h };
+      }
+
+      // ── Chart Tooltip Interaction ──
+
+      /**
+       * Set up tooltip interaction for a canvas.
+       * Call once per canvas; subsequent calls are no-ops.
+       * @param {HTMLCanvasElement} canvas
+       */
+      function setupChartTooltip(canvas) {
+        if (canvas._tooltipBound) return;
+        canvas._tooltipBound = true;
+
+        const wrap = canvas.closest(".chart-wrap");
+        const crosshair = wrap.querySelector(".chart-crosshair");
+        const tooltip = wrap.querySelector(".chart-tooltip");
+
+        /**
+         * Show tooltip at the given client x position.
+         * @param {number} clientX
+         */
+        function showTooltip(clientX) {
+          const meta = canvas._chartMeta;
+          if (!meta) return;
+
+          const rect = canvas.getBoundingClientRect();
+          const cssX = clientX - rect.left;
+
+          // Map pixel to age
+          const ageFloat =
+            meta.startAge +
+            ((cssX - meta.pad.left) / meta.plotW) *
+              (meta.endAge - meta.startAge);
+          const age = Math.round(ageFloat);
+          if (age < meta.startAge || age > meta.endAge) {
+            hideTooltip();
+            return;
+          }
+
+          // Position crosshair
+          const xPx =
+            meta.pad.left +
+            ((age - meta.startAge) / (meta.endAge - meta.startAge)) *
+              meta.plotW;
+          crosshair.style.left = xPx + "px";
+          crosshair.style.top = meta.pad.top + "px";
+          crosshair.style.height = meta.plotH + "px";
+          crosshair.style.display = "block";
+
+          // Build tooltip content
+          let html = `<div class="tt-age">Age ${age}</div>`;
+          for (const s of meta.series) {
+            const idx = age - meta.startAge;
+            if (idx < 0 || idx >= s.data.length) continue;
+            html += `<div class="tt-row"><span class="tt-swatch" style="background:${s.color}"></span>${s.label.split("(")[0].trim()}: ${fmt(s.data[idx])}</div>`;
+          }
+          tooltip.innerHTML = html;
+          tooltip.style.display = "block";
+
+          // Position tooltip — flip to left side if near right edge
+          const tipW = tooltip.offsetWidth;
+          const spaceRight = rect.width - xPx;
+          if (spaceRight < tipW + 20) {
+            tooltip.style.left = "";
+            tooltip.style.right = rect.width - xPx + 12 + "px";
+          } else {
+            tooltip.style.right = "";
+            tooltip.style.left = xPx + 12 + "px";
+          }
+        }
+
+        function hideTooltip() {
+          crosshair.style.display = "none";
+          tooltip.style.display = "none";
+        }
+
+        // Mouse events
+        canvas.addEventListener("mousemove", (e) => showTooltip(e.clientX));
+        canvas.addEventListener("mouseleave", hideTooltip);
+
+        // Touch events
+        canvas.addEventListener("touchstart", (e) => {
+          if (e.touches.length === 1) {
+            showTooltip(e.touches[0].clientX);
+          }
+        }, { passive: true });
+        canvas.addEventListener("touchmove", (e) => {
+          if (e.touches.length === 1) {
+            showTooltip(e.touches[0].clientX);
+          }
+        }, { passive: true });
+        canvas.addEventListener("touchend", hideTooltip);
+        canvas.addEventListener("touchcancel", hideTooltip);
+      }
+
+      // Hide all tooltips when touching outside any chart on mobile
+      document.addEventListener("touchstart", (e) => {
+        if (!e.target.closest(".chart-wrap")) {
+          for (const wrap of $$(".chart-wrap")) {
+            wrap.querySelector(".chart-crosshair").style.display = "none";
+            wrap.querySelector(".chart-tooltip").style.display = "none";
+          }
+        }
+      }, { passive: true });
+
+      /**
+       * Build legend HTML for chart series and markers.
+       * @param {{color: string, label: string}[]} items
+       * @returns {string}
+       */
+      function legendHTML(items) {
+        return items
+          .map(
+            (it) =>
+              `<span class="legend-item"><span class="legend-swatch" style="background:${it.color}"></span>${it.label}</span>`,
+          )
+          .join("");
+      }
+
+      // ── Coast FIRE ──
+
+      function calcCoast() {
+        const startAge = +$("#coast-age").value;
+        const assets = +$("#coast-assets").value;
+        const goalIncome = +$("#coast-income").value;
+        const growthPct = +$("#coast-growth").value;
+        const inflationPct = +$("#coast-inflation").value;
+        const withdrawalPct = +$("#coast-withdrawal").value;
+
+        const hasTargetAge = $("#coast-target-age").value !== "";
+        const hasContrib = $("#coast-contributions").value !== "";
+
+        if (!hasTargetAge && !hasContrib) {
+          $("#coast-results").innerHTML =
+            '<h3>Results</h3><div class="result-item"><span class="result-label">Status</span><span class="result-value danger">Enter a target retirement age or monthly contributions (or both)</span></div>';
+          return;
+        }
+
+        const ng = 1 + growthPct / 100;
+        const inf = 1 + inflationPct / 100;
+        const baseTarget = goalIncome / (withdrawalPct / 100);
+        const endAge = 100;
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
+
+        /** Inflation-adjusted target at a given age. */
+        const targetAtAge = (age) =>
+          baseTarget * Math.pow(inf, age - startAge);
+
+        let targetRetireAge;
+        let monthlyContrib;
+        let computedField = null; // "age" or "contributions"
+
+        if (hasTargetAge && hasContrib) {
+          // Mode: both set — current behavior
+          targetRetireAge = +$("#coast-target-age").value;
+          monthlyContrib = +$("#coast-contributions").value;
+        } else if (!hasTargetAge && hasContrib) {
+          // Mode: find retirement age from contributions
+          computedField = "age";
+          monthlyContrib = +$("#coast-contributions").value;
+          // Simulate with contributions until balance >= inflation-adjusted target
+          let bal = assets;
+          targetRetireAge = null;
+          for (let age = startAge; age < endAge; age++) {
+            if (bal >= targetAtAge(age)) {
+              targetRetireAge = age;
+              break;
+            }
+            for (let m = 0; m < 12; m++) {
+              bal *= monthlyGrowth;
+              bal += monthlyContrib;
+            }
+          }
+          if (targetRetireAge === null) {
+            // Check at endAge
+            if (bal >= targetAtAge(endAge)) {
+              targetRetireAge = endAge;
+            } else {
+              $("#coast-results").innerHTML =
+                '<h3>Results</h3><div class="result-item"><span class="result-label">Status</span><span class="result-value danger">Cannot reach target by age 100 with these contributions</span></div>';
+              return;
+            }
+          }
+        } else {
+          // Mode: find required contributions for target age
+          computedField = "contributions";
+          targetRetireAge = +$("#coast-target-age").value;
+          const n = 12 * (targetRetireAge - startAge);
+          const target = targetAtAge(targetRetireAge);
+          if (n <= 0) {
+            monthlyContrib = 0;
+          } else {
+            const growthFactor = Math.pow(monthlyGrowth, n);
+            const assetsAtRetirement = assets * growthFactor;
+            if (assetsAtRetirement >= target) {
+              monthlyContrib = 0;
+            } else {
+              // FV of annuity: c * (mg^n - 1) / (mg - 1)
+              // Ceil to next dollar so the simulation always reaches the target
+              monthlyContrib = Math.ceil(
+                (target - assetsAtRetirement) /
+                ((growthFactor - 1) / (monthlyGrowth - 1)),
+              );
+            }
+          }
+        }
+
+        const targetAtRetirement = targetAtAge(targetRetireAge);
+
+        // Find coast age: earliest age where accumulated balance, growing
+        // without contributions at nominal rate, reaches the inflation-adjusted
+        // target by the target retirement age.
+        let coastAge = null;
+
+        let tempBalance = assets;
+        for (let age = startAge; age <= targetRetireAge; age++) {
+          const yearsToRetire = targetRetireAge - age;
+          const projected = tempBalance * Math.pow(ng, yearsToRetire);
+          if (projected >= targetAtRetirement) {
+            coastAge = age;
+            break;
+          }
+          for (let m = 0; m < 12; m++) {
+            tempBalance *= monthlyGrowth;
+            tempBalance += monthlyContrib;
+          }
+        }
+
+        // "With contributions" line: contribute until target retirement age,
+        // then withdraw using withdrawal rate * balance
+        let balance = assets;
+        const balancesWithContrib = [balance];
+        for (let age = startAge; age < targetRetireAge; age++) {
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            balance += monthlyContrib;
+          }
+          balancesWithContrib.push(balance);
+        }
+        const contribBalanceAtRetirement = balance;
+        const contribFirstWithdrawal =
+          contribBalanceAtRetirement * (withdrawalPct / 100);
+        for (let age = targetRetireAge; age < endAge; age++) {
+          const yearsInRetirement = age - targetRetireAge;
+          const annualWithdrawal =
+            contribFirstWithdrawal * Math.pow(inf, yearsInRetirement);
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            balance -= annualWithdrawal / 12;
+          }
+          if (balance < 0) balance = 0;
+          balancesWithContrib.push(balance);
+        }
+
+        // Coast scenario: contribute until coastAge, then stop; withdraw after retirement
+        let coastBalances = null;
+        if (coastAge !== null) {
+          balance = assets;
+          const coastBals = [balance];
+          for (let age = startAge; age < coastAge; age++) {
+            for (let m = 0; m < 12; m++) {
+              balance *= monthlyGrowth;
+              balance += monthlyContrib;
+            }
+            coastBals.push(balance);
+          }
+          for (let age = coastAge; age < targetRetireAge; age++) {
+            for (let m = 0; m < 12; m++) {
+              balance *= monthlyGrowth;
+            }
+            coastBals.push(balance);
+          }
+          const coastBalanceAtRetirement = balance;
+          const coastFirstWithdrawal =
+            coastBalanceAtRetirement * (withdrawalPct / 100);
+          for (let age = targetRetireAge; age < endAge; age++) {
+            const yearsInRetirement = age - targetRetireAge;
+            const annualWithdrawal =
+              coastFirstWithdrawal * Math.pow(inf, yearsInRetirement);
+            for (let m = 0; m < 12; m++) {
+              balance *= monthlyGrowth;
+              balance -= annualWithdrawal / 12;
+            }
+            if (balance < 0) balance = 0;
+            coastBals.push(balance);
+          }
+          coastBalances = coastBals;
+        }
+
+        // Results
+        const goalIncomeAtRetirement =
+          goalIncome * Math.pow(inf, targetRetireAge - startAge);
+        const resultsEl = $("#coast-results");
+        let html = "<h3>Results</h3>";
+        if (computedField === "age") {
+          html += `<div class="result-item"><span class="result-label">Retirement age (calculated)</span><span class="result-value ok">${targetRetireAge}</span></div>`;
+        }
+        if (computedField === "contributions") {
+          html += `<div class="result-item"><span class="result-label">Required monthly contributions</span><span class="result-value ok">${fmt(monthlyContrib)}/mo</span></div>`;
+        }
+        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Target at retirement (inflation-adjusted)</span><span class="result-value">${fmt(targetAtRetirement)}</span></div>`;
+        if (coastAge !== null) {
+          const coastBalAtRetirement = coastBalances[targetRetireAge - startAge];
+          const coastWithdrawal = coastBalAtRetirement * (withdrawalPct / 100);
+          const meetsGoal = coastWithdrawal >= goalIncomeAtRetirement;
+          html += `<div class="result-item"><span class="result-label">Coast age (stop contributing)</span><span class="result-value ok">${coastAge}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Years of contributions needed</span><span class="result-value">${coastAge - startAge}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Balance at coast age</span><span class="result-value">${fmt(coastBalances[coastAge - startAge])}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Annual withdrawal at retirement (${withdrawalPct}% of balance)</span><span class="result-value">${fmt(coastWithdrawal)}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Goal income at retirement (inflation-adjusted)</span><span class="result-value ${meetsGoal ? "ok" : "danger"}">${fmt(goalIncomeAtRetirement)}</span></div>`;
+        } else {
+          html += `<div class="result-item"><span class="result-label">Status</span><span class="result-value danger">Cannot reach target by retirement age ${targetRetireAge} with these parameters</span></div>`;
+        }
+        resultsEl.innerHTML = html;
+
+        // Chart
+        const seriesData = [
+          {
+            data: balancesWithContrib,
+            color: "#4a90d9",
+            label: "With contributions",
+          },
+        ];
+        const markers = [];
+
+        markers.push({
+          age: targetRetireAge,
+          color: "#0b6b3a",
+          label: `Retire: ${targetRetireAge}`,
+        });
+
+        if (coastBalances) {
+          seriesData.push({
+            data: coastBalances,
+            color: "#e67e22",
+            label: "Coast (no contributions after coast age)",
+          });
+          markers.push({
+            age: coastAge,
+            color: "#e67e22",
+            label: `Coast: ${coastAge}`,
+          });
+        }
+
+        // Add inflation-adjusted target line
+        const targetLine = [];
+        for (let age = startAge; age <= endAge; age++) {
+          targetLine.push(targetAtAge(age));
+        }
+        seriesData.push({
+          data: targetLine,
+          color: "#b00020",
+          label: `Target: ${fmt(baseTarget)} (inflation-adjusted)`,
+        });
+
+        drawChart($("#coast-chart"), {
+          startAge,
+          endAge,
+          series: seriesData,
+          markers,
+        });
+        setupChartTooltip($("#coast-chart"));
+
+        const legendItems = seriesData.map((s) => ({
+          color: s.color,
+          label: s.label,
+        }));
+        for (const m of markers) {
+          legendItems.push({ color: m.color, label: m.label });
+        }
+        $("#coast-legend").innerHTML = legendHTML(legendItems);
+      }
+
+      // ── Standard FIRE ──
+
+      function calcStandard() {
+        const startAge = +$("#standard-age").value;
+        const assets = +$("#standard-assets").value;
+        const goalIncome = +$("#standard-income").value;
+        const monthlyContrib = +$("#standard-contributions").value;
+        const growthPct = +$("#standard-growth").value;
+        const inflationPct = +$("#standard-inflation").value;
+        const withdrawalPct = +$("#standard-withdrawal").value;
+
+        const ng = 1 + growthPct / 100;
+        const inf = 1 + inflationPct / 100;
+        const baseTarget = goalIncome / (withdrawalPct / 100);
+        const endAge = 100;
+
+        const targetAtAge = (age) =>
+          baseTarget * Math.pow(inf, age - startAge);
+
+        // Simulate with contributions until inflation-adjusted target is
+        // reached, then withdraw with inflation-adjusted withdrawals
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
+        let balance = assets;
+        let fireAge = null;
+        const balances = [balance];
+
+        for (let age = startAge; age < endAge; age++) {
+          if (balance >= targetAtAge(age) && fireAge === null) {
+            fireAge = age;
+          }
+          const yearsFromStart = age - startAge;
+          const annualWithdrawal =
+            goalIncome * Math.pow(inf, yearsFromStart);
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            if (fireAge === null) balance += monthlyContrib;
+            else balance -= annualWithdrawal / 12;
+          }
+          if (balance < 0) balance = 0;
+          balances.push(balance);
+        }
+        if (balance >= targetAtAge(endAge) && fireAge === null) {
+          fireAge = endAge;
+        }
+
+        // Results
+        const resultsEl = $("#standard-results");
+        let html = "<h3>Results</h3>";
+        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
+        if (fireAge !== null) {
+          html += `<div class="result-item"><span class="result-label">Target at FIRE age (inflation-adjusted)</span><span class="result-value">${fmt(targetAtAge(fireAge))}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">FIRE age</span><span class="result-value ok">${fireAge}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Years until FIRE</span><span class="result-value">${fireAge - startAge}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Balance at FIRE age</span><span class="result-value">${fmt(balances[fireAge - startAge])}</span></div>`;
+        } else {
+          html += `<div class="result-item"><span class="result-label">Status</span><span class="result-value danger">Cannot reach target by age ${endAge} with these parameters</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Balance at age ${endAge}</span><span class="result-value">${fmt(balances[balances.length - 1])}</span></div>`;
+        }
+        resultsEl.innerHTML = html;
+
+        // Chart — target line grows with inflation
+        const targetLine = [];
+        for (let age = startAge; age <= endAge; age++) {
+          targetLine.push(targetAtAge(age));
+        }
+        const seriesData = [
+          { data: balances, color: "#4a90d9", label: "Balance" },
+          {
+            data: targetLine,
+            color: "#b00020",
+            label: `Target: ${fmt(baseTarget)} (inflation-adjusted)`,
+          },
+        ];
+        const markers = [];
+        if (fireAge !== null && fireAge <= endAge) {
+          markers.push({
+            age: fireAge,
+            color: "#0b6b3a",
+            label: `FIRE: ${fireAge}`,
+          });
+        }
+
+        drawChart($("#standard-chart"), {
+          startAge,
+          endAge,
+          series: seriesData,
+          markers,
+        });
+        setupChartTooltip($("#standard-chart"));
+
+        const legendItems = seriesData.map((s) => ({
+          color: s.color,
+          label: s.label,
+        }));
+        for (const m of markers) {
+          legendItems.push({ color: m.color, label: m.label });
+        }
+        $("#standard-legend").innerHTML = legendHTML(legendItems);
+      }
+
+      // ── Standard Retirement ──
+
+      function calcRetirement() {
+        const startAge = +$("#retirement-age").value;
+        const targetRetireAge = +$("#retirement-target-age").value;
+        const assets = +$("#retirement-assets").value;
+        const goalIncome = +$("#retirement-income").value;
+        const monthlyContrib = +$("#retirement-contributions").value;
+        const growthPct = +$("#retirement-growth").value;
+        const inflationPct = +$("#retirement-inflation").value;
+        const withdrawalPct = +$("#retirement-withdrawal").value;
+
+        const ng = 1 + growthPct / 100;
+        const inf = 1 + inflationPct / 100;
+        const baseTarget = goalIncome / (withdrawalPct / 100);
+        const endAge = 100;
+
+        const targetAtAge = (age) =>
+          baseTarget * Math.pow(inf, age - startAge);
+
+        // Phase 1: accumulate until retirement age
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
+        let balance = assets;
+        const balances = [balance];
+        for (let age = startAge; age < Math.min(targetRetireAge, endAge); age++) {
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            balance += monthlyContrib;
+          }
+          balances.push(balance);
+        }
+
+        const retireIdx = targetRetireAge - startAge;
+        const balanceAtRetirement = balance;
+        const targetAtRetirement = targetAtAge(targetRetireAge);
+
+        // First-year withdrawal = balance at retirement * withdrawal rate
+        const firstYearWithdrawal = balanceAtRetirement * (withdrawalPct / 100);
+        // Goal income inflation-adjusted to retirement
+        const goalIncomeAtRetirement =
+          goalIncome * Math.pow(inf, targetRetireAge - startAge);
+
+        // Phase 2: withdraw (first-year amount, then inflate each year)
+        for (let age = targetRetireAge; age < endAge; age++) {
+          const yearsInRetirement = age - targetRetireAge;
+          const annualWithdrawal =
+            firstYearWithdrawal * Math.pow(inf, yearsInRetirement);
+          for (let m = 0; m < 12; m++) {
+            balance *= monthlyGrowth;
+            balance -= annualWithdrawal / 12;
+          }
+          if (balance < 0) balance = 0;
+          balances.push(balance);
+        }
+
+        // Find when money runs out
+        let runsOutAge = null;
+        for (let i = retireIdx + 1; i < balances.length; i++) {
+          if (balances[i] <= 0) {
+            runsOutAge = startAge + i;
+            break;
+          }
+        }
+
+        const lastsYears = runsOutAge
+          ? runsOutAge - targetRetireAge
+          : endAge - targetRetireAge + "+";
+
+        const meetsGoal = firstYearWithdrawal >= goalIncomeAtRetirement;
+
+        // Results
+        const resultsEl = $("#retirement-results");
+        let html = "<h3>Results</h3>";
+        html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Target at retirement (inflation-adjusted)</span><span class="result-value">${fmt(targetAtRetirement)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Balance at retirement (age ${targetRetireAge})</span><span class="result-value ${balanceAtRetirement >= targetAtRetirement ? "ok" : ""}">${fmt(balanceAtRetirement)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Annual withdrawal at retirement (${withdrawalPct}% of balance)</span><span class="result-value">${fmt(firstYearWithdrawal)}</span></div>`;
+        html += `<div class="result-item"><span class="result-label">Goal income at retirement (inflation-adjusted)</span><span class="result-value ${meetsGoal ? "ok" : "danger"}">${fmt(goalIncomeAtRetirement)}</span></div>`;
+        if (runsOutAge) {
+          html += `<div class="result-item"><span class="result-label">Money runs out at age</span><span class="result-value danger">${runsOutAge}</span></div>`;
+          html += `<div class="result-item"><span class="result-label">Savings last</span><span class="result-value danger">${lastsYears} years</span></div>`;
+        } else {
+          html += `<div class="result-item"><span class="result-label">Savings last</span><span class="result-value ok">${lastsYears} years (past age ${endAge})</span></div>`;
+        }
+        resultsEl.innerHTML = html;
+
+        // Chart — target line grows with inflation
+        const targetLine = [];
+        for (let age = startAge; age <= endAge; age++) {
+          targetLine.push(targetAtAge(age));
+        }
+        const seriesData = [
+          { data: balances, color: "#4a90d9", label: "Balance" },
+          {
+            data: targetLine,
+            color: "#b00020",
+            label: `Target: ${fmt(baseTarget)} (inflation-adjusted)`,
+          },
+        ];
+        const markers = [
+          {
+            age: targetRetireAge,
+            color: "#e67e22",
+            label: `Retire: ${targetRetireAge}`,
+          },
+        ];
+        if (runsOutAge && runsOutAge <= endAge) {
+          markers.push({
+            age: runsOutAge,
+            color: "#b00020",
+            label: `Depleted: ${runsOutAge}`,
+          });
+        }
+
+        drawChart($("#retirement-chart"), {
+          startAge,
+          endAge,
+          series: seriesData,
+          markers,
+        });
+        setupChartTooltip($("#retirement-chart"));
+
+        const legendItems = seriesData.map((s) => ({
+          color: s.color,
+          label: s.label,
+        }));
+        for (const m of markers) {
+          legendItems.push({ color: m.color, label: m.label });
+        }
+        $("#retirement-legend").innerHTML = legendHTML(legendItems);
+      }
+
+      // ── Shared field syncing ──
+
+      /** Field suffixes shared across all three calculators. */
+      const sharedFields = [
+        "age",
+        "assets",
+        "income",
+        "contributions",
+        "growth",
+        "inflation",
+        "withdrawal",
+      ];
+      const prefixes = ["coast", "standard", "retirement"];
+
+      /**
+       * Copy shared field values from the source calculator to all others.
+       * @param {string} sourcePrefix
+       */
+      function syncFields(sourcePrefix) {
+        for (const field of sharedFields) {
+          const val = $(`#${sourcePrefix}-${field}`).value;
+          for (const p of prefixes) {
+            if (p !== sourcePrefix) {
+              $(`#${p}-${field}`).value = val;
+            }
+          }
+        }
+        // Sync target-age between coast and retirement
+        const srcEl = $(`#${sourcePrefix}-target-age`);
+        if (srcEl) {
+          for (const p of prefixes) {
+            if (p !== sourcePrefix) {
+              const destEl = $(`#${p}-target-age`);
+              if (destEl) destEl.value = srcEl.value;
+            }
+          }
+        }
+      }
+
+      // ── Tab Switching ──
+
+      $$(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          // Sync values from the currently active calculator before switching
+          const prev = $(".tab.active").dataset.tab;
+          syncFields(prev);
+
+          $$(".tab").forEach((t) => t.classList.remove("active"));
+          $$(".calculator").forEach((c) => c.classList.remove("active"));
+          tab.classList.add("active");
+          $(`#calc-${tab.dataset.tab}`).classList.add("active");
+          recalc();
+        });
+      });
+
+      /** Recalculate the active calculator. */
+      function recalc() {
+        const active = $(".tab.active").dataset.tab;
+        if (active === "coast") calcCoast();
+        else if (active === "standard") calcStandard();
+        else calcRetirement();
+      }
+
+      // Attach input listeners
+      $$("input[type=number]").forEach((input) => {
+        input.addEventListener("input", recalc);
+      });
+
+      // Redraw on resize
+      window.addEventListener("resize", recalc);
+
+      // Initial calculation
+      recalc();
+    </script>
+  </body>
+</html>
