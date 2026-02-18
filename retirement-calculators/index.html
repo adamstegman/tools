@@ -304,6 +304,7 @@
               value="65"
               min="2"
               max="100"
+              placeholder="auto"
               inputmode="numeric"
             />
           </label>
@@ -322,6 +323,7 @@
               id="coast-contributions"
               value="1000"
               min="0"
+              placeholder="auto"
               inputmode="decimal"
             />
           </label>
@@ -878,26 +880,87 @@
 
       function calcCoast() {
         const startAge = +$("#coast-age").value;
-        const targetRetireAge = +$("#coast-target-age").value;
         const assets = +$("#coast-assets").value;
         const goalIncome = +$("#coast-income").value;
-        const monthlyContrib = +$("#coast-contributions").value;
         const growthPct = +$("#coast-growth").value;
         const inflationPct = +$("#coast-inflation").value;
         const withdrawalPct = +$("#coast-withdrawal").value;
+
+        const hasTargetAge = $("#coast-target-age").value !== "";
+        const hasContrib = $("#coast-contributions").value !== "";
+
+        if (!hasTargetAge && !hasContrib) {
+          $("#coast-results").innerHTML =
+            '<h3>Results</h3><div class="result-item"><span class="result-label">Status</span><span class="result-value danger">Enter a target retirement age or monthly contributions (or both)</span></div>';
+          return;
+        }
 
         const ng = 1 + growthPct / 100;
         const inf = 1 + inflationPct / 100;
         const baseTarget = goalIncome / (withdrawalPct / 100);
         const endAge = 100;
+        const monthlyGrowth = Math.pow(ng, 1 / 12);
 
-        /**
-         * Inflation-adjusted target at a given age.
-         * @param {number} age
-         * @returns {number}
-         */
+        /** Inflation-adjusted target at a given age. */
         const targetAtAge = (age) =>
           baseTarget * Math.pow(inf, age - startAge);
+
+        let targetRetireAge;
+        let monthlyContrib;
+        let computedField = null; // "age" or "contributions"
+
+        if (hasTargetAge && hasContrib) {
+          // Mode: both set — current behavior
+          targetRetireAge = +$("#coast-target-age").value;
+          monthlyContrib = +$("#coast-contributions").value;
+        } else if (!hasTargetAge && hasContrib) {
+          // Mode: find retirement age from contributions
+          computedField = "age";
+          monthlyContrib = +$("#coast-contributions").value;
+          // Simulate with contributions until balance >= inflation-adjusted target
+          let bal = assets;
+          targetRetireAge = null;
+          for (let age = startAge; age < endAge; age++) {
+            if (bal >= targetAtAge(age)) {
+              targetRetireAge = age;
+              break;
+            }
+            for (let m = 0; m < 12; m++) {
+              bal *= monthlyGrowth;
+              bal += monthlyContrib;
+            }
+          }
+          if (targetRetireAge === null) {
+            // Check at endAge
+            if (bal >= targetAtAge(endAge)) {
+              targetRetireAge = endAge;
+            } else {
+              $("#coast-results").innerHTML =
+                '<h3>Results</h3><div class="result-item"><span class="result-label">Status</span><span class="result-value danger">Cannot reach target by age 100 with these contributions</span></div>';
+              return;
+            }
+          }
+        } else {
+          // Mode: find required contributions for target age
+          computedField = "contributions";
+          targetRetireAge = +$("#coast-target-age").value;
+          const n = 12 * (targetRetireAge - startAge);
+          const target = targetAtAge(targetRetireAge);
+          if (n <= 0) {
+            monthlyContrib = 0;
+          } else {
+            const growthFactor = Math.pow(monthlyGrowth, n);
+            const assetsAtRetirement = assets * growthFactor;
+            if (assetsAtRetirement >= target) {
+              monthlyContrib = 0;
+            } else {
+              // FV of annuity: c * (mg^n - 1) / (mg - 1)
+              monthlyContrib =
+                (target - assetsAtRetirement) /
+                ((growthFactor - 1) / (monthlyGrowth - 1));
+            }
+          }
+        }
 
         const targetAtRetirement = targetAtAge(targetRetireAge);
 
@@ -906,18 +969,14 @@
         // target by the target retirement age.
         let coastAge = null;
 
-        const monthlyGrowth = Math.pow(ng, 1 / 12);
         let tempBalance = assets;
         for (let age = startAge; age <= targetRetireAge; age++) {
-          // Check: if we stop now, will balance reach target by retirement?
           const yearsToRetire = targetRetireAge - age;
           const projected = tempBalance * Math.pow(ng, yearsToRetire);
           if (projected >= targetAtRetirement) {
             coastAge = age;
             break;
           }
-
-          // Grow one year with contributions
           for (let m = 0; m < 12; m++) {
             tempBalance *= monthlyGrowth;
             tempBalance += monthlyContrib;
@@ -925,7 +984,7 @@
         }
 
         // "With contributions" line: contribute until target retirement age,
-        // then withdraw using withdrawal rate * balance (same as Standard Retirement)
+        // then withdraw using withdrawal rate * balance
         let balance = assets;
         const balancesWithContrib = [balance];
         for (let age = startAge; age < targetRetireAge; age++) {
@@ -953,7 +1012,6 @@
         // Coast scenario: contribute until coastAge, then stop; withdraw after retirement
         let coastBalances = null;
         if (coastAge !== null) {
-          // Accumulate until coast age
           balance = assets;
           const coastBals = [balance];
           for (let age = startAge; age < coastAge; age++) {
@@ -963,14 +1021,12 @@
             }
             coastBals.push(balance);
           }
-          // Coast (growth only) until retirement
           for (let age = coastAge; age < targetRetireAge; age++) {
             for (let m = 0; m < 12; m++) {
               balance *= monthlyGrowth;
             }
             coastBals.push(balance);
           }
-          // Withdraw using withdrawal rate * balance at retirement
           const coastBalanceAtRetirement = balance;
           const coastFirstWithdrawal =
             coastBalanceAtRetirement * (withdrawalPct / 100);
@@ -993,6 +1049,12 @@
           goalIncome * Math.pow(inf, targetRetireAge - startAge);
         const resultsEl = $("#coast-results");
         let html = "<h3>Results</h3>";
+        if (computedField === "age") {
+          html += `<div class="result-item"><span class="result-label">Retirement age (calculated)</span><span class="result-value ok">${targetRetireAge}</span></div>`;
+        }
+        if (computedField === "contributions") {
+          html += `<div class="result-item"><span class="result-label">Required monthly contributions</span><span class="result-value ok">${fmt(monthlyContrib)}/mo</span></div>`;
+        }
         html += `<div class="result-item"><span class="result-label">Target balance (today's dollars)</span><span class="result-value">${fmt(baseTarget)}</span></div>`;
         html += `<div class="result-item"><span class="result-label">Target at retirement (inflation-adjusted)</span><span class="result-value">${fmt(targetAtRetirement)}</span></div>`;
         if (coastAge !== null) {
