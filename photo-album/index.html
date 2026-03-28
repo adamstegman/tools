@@ -910,48 +910,173 @@
        */
       async function importAlbum(file) {
         try {
-          const text = await file.text();
-          const data = JSON.parse(text);
+          // For large files, read and parse in chunks to avoid string length limits
+          const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
 
-          if (!data.version || !data.album || !data.photos) {
+          let albumData = null;
+          let photosCount = 0;
+          let buffer = '';
+          let offset = 0;
+          let inPhotosArray = false;
+          let braceDepth = 0;
+          let currentPhotoStart = -1;
+          let photoBuffer = '';
+          const photos = [];
+
+          // Read file in chunks
+          while (offset < file.size) {
+            const chunk = file.slice(offset, offset + CHUNK_SIZE);
+            const chunkText = await chunk.text();
+            buffer += chunkText;
+            offset += CHUNK_SIZE;
+
+            // Parse incrementally
+            let i = 0;
+            while (i < buffer.length) {
+              const char = buffer[i];
+
+              // Look for album metadata (before photos array)
+              if (!albumData && !inPhotosArray) {
+                // Try to extract album data
+                const albumMatch = buffer.match(/"album"\s*:\s*(\{[^}]*\})/);
+                if (albumMatch) {
+                  try {
+                    albumData = JSON.parse(albumMatch[1]);
+                  } catch (e) {
+                    // Album data might be incomplete, continue reading
+                  }
+                }
+
+                // Look for start of photos array
+                const photosArrayMatch = buffer.indexOf('"photos"');
+                if (photosArrayMatch !== -1) {
+                  const arrayStartMatch = buffer.indexOf('[', photosArrayMatch);
+                  if (arrayStartMatch !== -1) {
+                    inPhotosArray = true;
+                    i = arrayStartMatch + 1;
+                    buffer = buffer.substring(arrayStartMatch + 1);
+                    continue;
+                  }
+                }
+              }
+
+              // Parse photos array
+              if (inPhotosArray) {
+                if (char === '{') {
+                  if (braceDepth === 0) {
+                    currentPhotoStart = i;
+                    photoBuffer = '{';
+                  } else {
+                    photoBuffer += char;
+                  }
+                  braceDepth++;
+                } else if (char === '}') {
+                  braceDepth--;
+                  photoBuffer += char;
+
+                  if (braceDepth === 0 && currentPhotoStart !== -1) {
+                    // Complete photo object found
+                    try {
+                      const photo = JSON.parse(photoBuffer);
+                      photos.push(photo);
+                      photosCount++;
+                    } catch (e) {
+                      console.error('Failed to parse photo:', e);
+                    }
+                    photoBuffer = '';
+                    currentPhotoStart = -1;
+                    buffer = buffer.substring(i + 1);
+                    i = 0;
+                    continue;
+                  }
+                } else if (char === ']' && braceDepth === 0) {
+                  // End of photos array
+                  inPhotosArray = false;
+                  break;
+                } else if (braceDepth > 0) {
+                  photoBuffer += char;
+                }
+              }
+
+              i++;
+            }
+
+            // Keep partial photo in buffer for next chunk
+            if (braceDepth > 0 && currentPhotoStart !== -1) {
+              buffer = photoBuffer;
+            } else {
+              buffer = '';
+            }
+
+            // Break if we've finished parsing photos array
+            if (!inPhotosArray && albumData && photos.length > 0) {
+              break;
+            }
+          }
+
+          // Fallback to traditional parsing for small files or if chunked parsing failed
+          if (!albumData || photos.length === 0) {
+            console.log('Falling back to full file parsing');
+            const text = await file.text();
+            const data = JSON.parse(text);
+
+            if (!data.version || !data.album || !data.photos) {
+              showStatus("Invalid album file format", "bad");
+              return;
+            }
+
+            albumData = data.album;
+            photos.length = 0;
+            photos.push(...data.photos);
+          }
+
+          // Validate data
+          if (!albumData || !albumData.name) {
             showStatus("Invalid album file format", "bad");
             return;
           }
 
           // Check if album already exists
-          const existing = await getAlbum(data.album.name);
+          const existing = await getAlbum(albumData.name);
           if (existing) {
             const shouldOverwrite = confirm(
-              `An album named "${data.album.name}" already exists. Do you want to overwrite it?`
+              `An album named "${albumData.name}" already exists. Do you want to overwrite it?`
             );
             if (shouldOverwrite) {
-              await deleteAlbum(data.album.name);
+              await deleteAlbum(albumData.name);
             } else {
               return;
             }
           }
 
           // Create album
-          await createAlbum(data.album.name);
+          await createAlbum(albumData.name);
 
-          // Import photos
-          for (let i = 0; i < data.photos.length; i++) {
-            const photoData = data.photos[i];
+          // Import photos one at a time to avoid memory issues
+          for (let i = 0; i < photos.length; i++) {
+            const photoData = photos[i];
 
-            // Convert data URL back to blob
-            const response = await fetch(photoData.dataURL);
-            const blob = await response.blob();
+            try {
+              // Convert data URL back to blob
+              const response = await fetch(photoData.dataURL);
+              const blob = await response.blob();
 
-            // Create a File-like object
-            const file = new File([blob], photoData.filename, {
-              type: blob.type,
-            });
+              // Create a File-like object
+              const file = new File([blob], photoData.filename, {
+                type: blob.type,
+              });
 
-            await addPhoto(data.album.name, file, photoData.order);
+              await addPhoto(albumData.name, file, photoData.order);
+            } catch (e) {
+              console.error(`Failed to import photo ${photoData.filename}:`, e);
+            }
+
+            // Clear reference to free memory
+            photos[i] = null;
           }
 
           showStatus(
-            `Album "${data.album.name}" imported with ${data.photos.length} photo(s)`,
+            `Album "${albumData.name}" imported with ${photos.length} photo(s)`,
             "ok"
           );
 
@@ -960,7 +1085,7 @@
 
           // If we're in album view, open the imported album
           if (state.currentAlbum) {
-            await openAlbum(data.album.name);
+            await openAlbum(albumData.name);
           }
         } catch (error) {
           console.error("Error importing album:", error);
