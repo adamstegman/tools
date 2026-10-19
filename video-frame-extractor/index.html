@@ -518,7 +518,7 @@
     <header>
       <div>
         <h1>Video Frame Extractor</h1>
-        <div class="header-meta">Local-only MP4 constituent image extractor &amp; comparator</div>
+        <div class="header-meta">Local-only video frame extractor &amp; comparator (MP4, MKV, WebM)</div>
       </div>
       <div>
         <a href="../index.html" style="color: var(--muted); text-decoration: none; font-size: 0.875rem;">← Back to Tools</a>
@@ -530,12 +530,12 @@
         <div id="drop-zone" class="upload-zone">
           <div class="upload-icon">📹</div>
           <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 0.25rem;">
-            Drop an MP4 video here or click to browse
+            Drop an MP4, MKV, or WebM video here or click to browse
           </div>
           <div style="color: var(--muted); font-size: 0.85rem;">
             Processed 100% locally in your browser. No files are uploaded to any server.
           </div>
-          <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,video/*" />
+          <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mp4,.webm,.mov,video/*" />
         </div>
 
         <div id="video-control-card" class="hidden">
@@ -751,9 +751,17 @@
         updateEstimatedFrames();
       }
 
+      function isSupportedVideoFile(file) {
+        if (!file) return false;
+        if (file.type && (file.type.startsWith('video/') || file.type.includes('matroska'))) {
+          return true;
+        }
+        return /\.(mp4|mkv|webm|mov|m4v|avi|ogv)$/i.test(file.name);
+      }
+
       function handleFile(file) {
-        if (!file || !file.type.startsWith('video/')) {
-          alert('Please select a valid video file (e.g. MP4).');
+        if (!isSupportedVideoFile(file)) {
+          alert('Please select a valid video file (MP4, MKV, WebM, etc.).');
           return;
         }
 
@@ -793,7 +801,7 @@
       });
 
       hiddenVideo.addEventListener('error', () => {
-        alert('Error decoding video file. The codec might not be supported natively by your browser.');
+        alert('Error decoding video file. The container format (e.g. MKV in Safari) or video codec might not be supported natively by your browser.');
         btnReset.click();
       });
 
