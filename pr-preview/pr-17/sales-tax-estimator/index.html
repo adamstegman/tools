@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sales Tax Estimator</title>
+    <meta
+      name="description"
+      content="Estimate sales tax paid from uploaded CSV transaction files. Excludes non-taxable items and applies category-specific tax rates."
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: Canvas;
+        --fg: CanvasText;
+        --muted: color-mix(in oklab, CanvasText 65%, Canvas 35%);
+        --card: color-mix(in oklab, Canvas 92%, CanvasText 8%);
+        --border: color-mix(in oklab, CanvasText 18%, Canvas 82%);
+        --accent: Highlight;
+        --accentText: HighlightText;
+        --ok: #0b6b3a;
+        --danger: #b00020;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        --radius: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
+          Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      }
+
+      a {
+        color: inherit;
+        text-decoration-color: color-mix(in oklab, currentColor 45%, transparent);
+        text-underline-offset: 0.15em;
+      }
+      a:hover {
+        text-decoration-color: currentColor;
+      }
+
+      header,
+      main,
+      footer {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: clamp(12px, 3vw, 18px);
+      }
+
+      header {
+        padding-top: clamp(16px, 4vw, 22px);
+        padding-bottom: clamp(6px, 2vw, 10px);
+      }
+
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 6px 0;
+        letter-spacing: -0.01em;
+      }
+
+      .lede {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 14px;
+        margin-bottom: 14px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px 0;
+        font-size: 1.05rem;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 650;
+      }
+
+      label span.hint {
+        font-weight: 500;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        padding: 10px 11px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: Canvas;
+        color: CanvasText;
+        font-size: 16px;
+        cursor: pointer;
+      }
+
+      .file-drop-zone {
+        border: 2px dashed var(--border);
+        border-radius: var(--radius);
+        padding: 24px;
+        text-align: center;
+        background: color-mix(in oklab, Canvas 96%, CanvasText 4%);
+        transition: border-color 0.2s, background 0.2s;
+      }
+
+      .file-drop-zone.drag-over {
+        border-color: var(--accent);
+        background: color-mix(in oklab, var(--accent) 8%, Canvas 92%);
+      }
+
+      .actions {
+        display: flex;
+        flex-direction: column;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: stretch;
+        margin-top: 10px;
+      }
+
+      @media (min-width: 520px) {
+        .actions {
+          flex-direction: row;
+          align-items: center;
+        }
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: Canvas;
+        color: CanvasText;
+        border-radius: 999px;
+        min-height: 44px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+
+      .actions button {
+        width: 100%;
+      }
+      @media (min-width: 520px) {
+        .actions button {
+          width: auto;
+        }
+      }
+
+      button.primary {
+        border-color: color-mix(in oklab, var(--accent) 70%, var(--border));
+        background: var(--accent);
+        color: var(--accentText);
+        font-weight: 650;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .status {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .status.ok {
+        color: color-mix(in oklab, var(--ok) 75%, var(--muted));
+      }
+      .status.bad {
+        color: color-mix(in oklab, var(--danger) 70%, var(--muted));
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 14px;
+      }
+
+      th,
+      td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+
+      th {
+        font-weight: 650;
+        background: color-mix(in oklab, Canvas 96%, CanvasText 4%);
+        position: sticky;
+        top: 0;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .number {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .summary {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 2px solid var(--border);
+        font-weight: 650;
+      }
+
+      .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+      }
+
+      .summary-row.total {
+        font-size: 1.1rem;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+        margin-top: 8px;
+      }
+
+      .small {
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+
+      details {
+        margin-top: 10px;
+      }
+
+      details summary {
+        cursor: pointer;
+        font-weight: 650;
+      }
+
+      footer {
+        padding-top: 10px;
+        padding-bottom: 24px;
+        color: var(--muted);
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Sales Tax Estimator</h1>
+      <p class="lede">
+        Upload a CSV file of your transactions to estimate sales tax paid. The tool excludes
+        non-taxable items (rent, utilities, groceries, etc.) and applies category-specific tax rates.
+      </p>
+    </header>
+
+    <noscript>
+      <main class="card" style="max-width: 1100px; margin: 0 auto; padding: 18px">
+        <h2 style="margin: 0 0 6px 0">JavaScript required</h2>
+        <p class="lede" style="margin: 0">This tool needs JavaScript to parse CSV files and calculate tax estimates.</p>
+      </main>
+    </noscript>
+
+    <main id="app">
+      <section class="card" aria-labelledby="upload-title">
+        <h2 id="upload-title">Upload CSV File</h2>
+        <p class="small" style="margin: 0 0 10px 0">
+          Expected columns: Date, Description, Amount, Category (optional). The tool will auto-detect
+          common column names.
+        </p>
+
+        <div class="file-drop-zone" id="dropZone">
+          <p style="margin: 0 0 8px 0">Drop CSV file here or click to browse</p>
+          <input type="file" id="fileInput" accept=".csv,text/csv" />
+        </div>
+
+        <div class="actions">
+          <span class="status" id="status" role="status" aria-live="polite"></span>
+        </div>
+
+        <details id="debugDetails" class="hidden" style="margin-top: 10px">
+          <summary>Debug Information</summary>
+          <pre id="debugOutput" style="margin: 8px 0 0 0; padding: 10px; background: color-mix(in oklab, Canvas 96%, CanvasText 4%); border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto;"></pre>
+        </details>
+      </section>
+
+      <section class="card hidden" id="resultsSection" aria-labelledby="results-title">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
+          <h2 id="results-title" style="margin: 0">Tax Estimate Results</h2>
+          <button id="copyBtn" type="button">Copy to clipboard</button>
+        </div>
+
+        <table id="resultsTable">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th class="number">Total Spend</th>
+              <th class="number">Taxable Amount</th>
+              <th class="number">Tax Rate</th>
+              <th class="number">Estimated Tax</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+
+        <div class="summary" id="summary"></div>
+      </section>
+
+      <details class="card">
+        <summary>How it works</summary>
+        <div class="small" style="margin-top: 8px">
+          <ol style="margin: 0; padding-left: 1.2em; display: grid; gap: 6px">
+            <li>
+              <strong>Excludes non-taxable items:</strong> Rent, mortgage, loan payments, transfers,
+              utilities, insurance, medical payments, grocery stores, government fees, tax payments,
+              credit card payments, and cash withdrawals.
+            </li>
+            <li>
+              <strong>Category-specific rates:</strong>
+              <ul style="margin: 4px 0; padding-left: 1.2em">
+                <li>Retail goods / online shopping: 8.25%</li>
+                <li>Restaurants, bars: 8.25%</li>
+                <li>Clothing: 8.25%</li>
+                <li>Services: 4% (partial taxation)</li>
+                <li>Hotels / car rentals: 12% (includes occupancy tax)</li>
+                <li>Groceries: 15% taxable portion at 8.25%</li>
+              </ul>
+            </li>
+            <li>
+              <strong>Category detection:</strong> Uses Category column if present, otherwise matches
+              keywords in Description/Merchant fields.
+            </li>
+          </ol>
+        </div>
+      </details>
+    </main>
+
+    <footer>
+      <p style="margin: 0">
+        Built as a single-file HTML tool. All processing happens in your browser—no data is uploaded
+        to any server.
+      </p>
+    </footer>
+
+    <script type="module">
+      const el = {
+        dropZone: document.getElementById("dropZone"),
+        fileInput: document.getElementById("fileInput"),
+        status: document.getElementById("status"),
+        resultsSection: document.getElementById("resultsSection"),
+        resultsTable: document.getElementById("resultsTable"),
+        resultsBody: document.getElementById("resultsBody"),
+        summary: document.getElementById("summary"),
+        copyBtn: document.getElementById("copyBtn"),
+        debugDetails: document.getElementById("debugDetails"),
+        debugOutput: document.getElementById("debugOutput"),
+      };
+
+      let lastProcessedData = null;
+
+      function addDebugLog(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        const existing = el.debugOutput.textContent || "";
+        el.debugOutput.textContent = existing + `[${timestamp}] ${message}\n`;
+        el.debugDetails.classList.remove("hidden");
+        el.debugDetails.open = true;
+        // Auto-scroll to bottom
+        el.debugOutput.scrollTop = el.debugOutput.scrollHeight;
+      }
+
+      function clearDebugLog() {
+        el.debugOutput.textContent = "";
+        el.debugDetails.classList.add("hidden");
+      }
+
+      // Tax rate configuration
+      const TAX_RATES = {
+        retail: 0.0825,
+        restaurant: 0.0825,
+        clothing: 0.0825,
+        services: 0.04,
+        travel: 0.12,
+        grocery: 0.0825, // Applied to taxable portion only
+        fuel: 0.0825, // Fuel is fully taxable
+      };
+
+      const GROCERY_TAXABLE_PORTION = 0.15; // 15% of grocery spending is taxable
+
+      // Non-taxable keywords (case-insensitive)
+      // NOTE: Groceries are NOT in this list - they are partially taxable, so we need to process them
+      const NON_TAXABLE_KEYWORDS = [
+        "rent",
+        "mortgage",
+        "loan",
+        "transfer",
+        "utility",
+        "utilities",
+        "insurance",
+        "medical",
+        "doctor",
+        "hospital",
+        "pharmacy",
+        "prescription",
+        // Removed: "grocery", "groceries", "supermarket" - these are partially taxable
+        "government",
+        "tax payment",
+        "irs",
+        "credit card payment",
+        "cash withdrawal",
+        "atm",
+        "withdrawal",
+      ];
+
+      // Category keywords for classification
+      const CATEGORY_KEYWORDS = {
+        grocery: ["grocery", "groceries", "supermarket", "whole foods", "trader joe", "safeway", "kroger"],
+        restaurant: [
+          "restaurant",
+          "cafe",
+          "coffee",
+          "starbucks",
+          "mcdonald",
+          "burger",
+          "pizza",
+          "dining",
+          "bar",
+          "pub",
+          "tavern",
+        ],
+        retail: [
+          "amazon",
+          "target",
+          "walmart",
+          "best buy",
+          "retail",
+          "store",
+          "shop",
+          "purchase",
+          "online",
+        ],
+        clothing: ["clothing", "apparel", "nike", "adidas", "zara", "h&m", "gap", "old navy"],
+        services: [
+          "service",
+          "repair",
+          "maintenance",
+          "salon",
+          "barber",
+          "spa",
+          "cleaning",
+          "plumber",
+          "electrician",
+          "contractor",
+        ],
+        travel: ["hotel", "motel", "airbnb", "car rental", "rental car", "avis", "hertz", "enterprise"],
+        fuel: ["fuel", "gas", "gasoline", "petrol", "transportation-fuel", "transportation fuel"],
+      };
+
+      function setStatus(text, kind) {
+        el.status.textContent = text;
+        el.status.className = `status ${kind || ""}`;
+      }
+
+      function parseCSV(text) {
+        const lines = [];
+        let currentLine = [];
+        let currentField = "";
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i];
+          const nextChar = text[i + 1];
+
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              currentField += '"';
+              i++; // Skip next quote
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === "," && !inQuotes) {
+            currentLine.push(currentField.trim());
+            currentField = "";
+          } else if ((char === "\n" || char === "\r") && !inQuotes) {
+            if (char === "\r" && nextChar === "\n") {
+              i++; // Skip \n after \r
+            }
+            if (currentField || currentLine.length > 0) {
+              currentLine.push(currentField.trim());
+              lines.push(currentLine);
+              currentLine = [];
+              currentField = "";
+            }
+          } else {
+            currentField += char;
+          }
+        }
+
+        // Handle last line
+        if (currentField || currentLine.length > 0) {
+          currentLine.push(currentField.trim());
+          lines.push(currentLine);
+        }
+
+        return lines;
+      }
+
+      function normalizeColumnName(name) {
+        return name.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+      }
+
+      function findColumnIndex(headers, possibleNames) {
+        const normalized = headers.map(normalizeColumnName);
+        for (const name of possibleNames) {
+          const idx = normalized.indexOf(normalizeColumnName(name));
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      }
+
+      function parseAmount(value) {
+        if (typeof value === "number") return value;
+        const str = String(value).replace(/[^0-9.-]/g, "");
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : Math.abs(num);
+           }
+
+      function isNonTaxable(description, category) {
+        // Prioritize category, fall back to description
+        const text = category ? category.toLowerCase() : (description || "").toLowerCase();
+        return NON_TAXABLE_KEYWORDS.some((keyword) => text.includes(keyword));
+      }
+
+      function detectCategory(description, category) {
+        // Prioritize category column if present and not empty
+        if (category && category.trim()) {
+          const catLower = category.toLowerCase().trim();
+
+          // Check for fuel/transportation FIRST to avoid false positives
+          // This must come before grocery check to prevent "Transportation-Fuel" from being misclassified
+          if (catLower.includes("transportation-fuel") ||
+              catLower.includes("transportation fuel") ||
+              (catLower.includes("fuel") && catLower.includes("transportation")) ||
+              catLower === "fuel") {
+            return "fuel";
+          }
+
+          // Check for grocery - be very permissive to catch all variations
+          // Simply check if it contains "grocer" anywhere (most permissive check)
+          if (catLower.includes("grocer")) {
+            return "grocery";
+          }
+
+          // Check other keyword matches
+          for (const [catType, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+            // Skip fuel and grocery as we already checked them above
+            if (catType === "fuel" || catType === "grocery") continue;
+
+            if (keywords.some((kw) => catLower.includes(kw))) {
+              return catType;
+            }
+          }
+
+          // If category column exists but doesn't match keywords, use it as-is for classification
+          // This allows category names like "Retail", "Restaurant" etc. to work directly
+          if (catLower.includes("retail") || catLower.includes("store") || catLower.includes("shop")) return "retail";
+          if (catLower.includes("restaurant") || catLower.includes("dining")) return "restaurant";
+          if (catLower.includes("clothing") || catLower.includes("apparel")) return "clothing";
+          if (catLower.includes("service") || catLower.includes("repair")) return "services";
+          if (catLower.includes("hotel") || catLower.includes("travel") || (catLower.includes("rental") && !catLower.includes("car rental"))) return "travel";
+        }
+
+        // Fall back to keyword matching in description if available
+        if (description && description.trim()) {
+          const descLower = description.toLowerCase();
+
+          // Check for fuel first
+          if (descLower.includes("fuel") || descLower.includes("gas") || descLower.includes("gasoline")) {
+            return "fuel";
+          }
+
+          // Check other keywords
+          for (const [catType, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+            if (catType === "fuel") continue; // Already checked
+            if (keywords.some((kw) => descLower.includes(kw))) {
+              return catType;
+            }
+          }
+        }
+
+        // Default to retail for unknown categories
+        return "retail";
+      }
+
+      function calculateTax(amount, category) {
+        if (category === "grocery") {
+          const taxableAmount = amount * GROCERY_TAXABLE_PORTION;
+          return taxableAmount * TAX_RATES.grocery;
+        }
+        const rate = TAX_RATES[category] || TAX_RATES.retail;
+        return amount * rate;
+      }
+
+      function formatCurrency(amount) {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(amount);
+      }
+
+      function formatPercent(rate) {
+        return `${(rate * 100).toFixed(2)}%`;
+      }
+
+      function processTransactions(csvLines) {
+        addDebugLog(`Starting processing: ${csvLines.length} total lines in CSV`);
+
+        if (csvLines.length < 2) {
+          throw new Error("CSV file must have at least a header row and one data row.");
+        }
+
+        const headers = csvLines[0];
+        addDebugLog(`Header row found: ${headers.length} columns`);
+        addDebugLog(`Column names: ${headers.join(", ")}`);
+
+        const descIdx = findColumnIndex(headers, ["description", "desc", "merchant", "name", "payee"]);
+        const amountIdx = findColumnIndex(headers, ["amount", "amt", "value", "total"]);
+        const categoryIdx = findColumnIndex(headers, ["category", "cat", "type"]);
+
+        addDebugLog(`Column indices - Description: ${descIdx >= 0 ? `column ${descIdx} ("${headers[descIdx]}")` : "NOT FOUND"}, Amount: ${amountIdx >= 0 ? `column ${amountIdx} ("${headers[amountIdx]}")` : "NOT FOUND"}, Category: ${categoryIdx >= 0 ? `column ${categoryIdx} ("${headers[categoryIdx]}")` : "NOT FOUND"}`);
+
+        if (descIdx < 0 || amountIdx < 0) {
+          const errorMsg = `Could not find required columns. Found columns: ${headers.join(", ")}. Expected: Description (or desc/merchant/name/payee) and Amount (or amt/value/total).`;
+          addDebugLog(`ERROR: ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
+
+        const transactions = [];
+        let skippedRows = 0;
+        let sampleRows = [];
+
+        for (let i = 1; i < csvLines.length; i++) {
+          const row = csvLines[i];
+          if (row.length < Math.max(descIdx, amountIdx) + 1) {
+            skippedRows++;
+            continue;
+          }
+
+          const description = String(row[descIdx] || "").trim();
+          const amount = parseAmount(row[amountIdx]);
+          const category = categoryIdx >= 0 ? String(row[categoryIdx] || "").trim() : "";
+
+          // Only skip if amount is invalid - empty description is fine, we'll use category
+          if (amount <= 0) {
+            skippedRows++;
+            if (sampleRows.length < 3) {
+              sampleRows.push({ description, amount, category, reason: "amount <= 0" });
+            }
+            continue;
+          }
+
+          transactions.push({ description, amount, category });
+          if (transactions.length <= 3) {
+            const displayText = category || description || "No description/category";
+            addDebugLog(`Sample transaction ${transactions.length}: "${displayText}" - $${amount.toFixed(2)}`);
+          }
+        }
+
+        addDebugLog(`Parsed ${transactions.length} valid transactions (skipped ${skippedRows} rows)`);
+        if (skippedRows > 0 && sampleRows.length > 0) {
+          addDebugLog(`Sample skipped rows: ${JSON.stringify(sampleRows, null, 2)}`);
+        }
+
+        if (transactions.length === 0) {
+          const errorMsg = `No valid transactions found in CSV file. Skipped ${skippedRows} rows. Check that Amount column contains valid positive numbers.`;
+          addDebugLog(`ERROR: ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
+
+        // Filter and categorize
+        const categoryTotals = {};
+        let totalSpend = 0;
+        let totalTaxable = 0;
+        let totalTax = 0;
+        let nonTaxableCount = 0;
+        let nonTaxableAmount = 0;
+        let groceryTransactions = [];
+
+        addDebugLog(`Starting tax calculation for ${transactions.length} transactions...`);
+
+        for (const tx of transactions) {
+          totalSpend += tx.amount;
+
+          if (isNonTaxable(tx.description, tx.category)) {
+            nonTaxableCount++;
+            nonTaxableAmount += tx.amount;
+            continue; // Skip non-taxable items
+          }
+
+          // Debug ALL category detection for transactions that might be grocery
+          const catLower = (tx.category || "").toLowerCase();
+          const descLower = (tx.description || "").toLowerCase();
+          if (catLower.includes("grocer") || descLower.includes("grocer") || catLower.includes("merchandise") || catLower.includes("supplies")) {
+            addDebugLog(`CHECKING CATEGORY: category="${tx.category || 'none'}", description="${tx.description || 'none'}"`);
+            addDebugLog(`  Lowercase category: "${catLower}"`);
+            addDebugLog(`  Lowercase description: "${descLower}"`);
+          }
+
+          const detectedCategory = detectCategory(tx.description, tx.category);
+
+          // Debug output for category detection results
+          if (catLower.includes("grocer") || descLower.includes("grocer") || catLower.includes("merchandise") || catLower.includes("supplies") || detectedCategory === "grocery" || detectedCategory === "fuel") {
+            const displayText = tx.category || tx.description || "No description/category";
+            addDebugLog(`CATEGORY RESULT: "${displayText}" -> ${detectedCategory}`);
+          }
+
+          const tax = calculateTax(tx.amount, detectedCategory);
+          const taxableAmount = detectedCategory === "grocery" ? tx.amount * GROCERY_TAXABLE_PORTION : tx.amount;
+
+          // Special debugging for grocery transactions
+          if (detectedCategory === "grocery") {
+            const displayText = tx.category || tx.description || "No description/category";
+            groceryTransactions.push({
+              text: displayText,
+              amount: tx.amount,
+              taxablePortion: taxableAmount,
+              tax: tax,
+              category: tx.category,
+              description: tx.description
+            });
+            if (groceryTransactions.length <= 5) {
+              addDebugLog(`GROCERY: "${displayText}" - Amount: $${tx.amount.toFixed(2)}, Taxable portion (${(GROCERY_TAXABLE_PORTION * 100).toFixed(0)}%): $${taxableAmount.toFixed(2)}, Tax (${(TAX_RATES.grocery * 100).toFixed(2)}%): $${tax.toFixed(2)}`);
+            }
+          }
+
+          if (!categoryTotals[detectedCategory]) {
+            categoryTotals[detectedCategory] = {
+              total: 0,
+              taxable: 0,
+              tax: 0,
+              rate: TAX_RATES[detectedCategory] || TAX_RATES.retail,
+            };
+          }
+
+          categoryTotals[detectedCategory].total += tx.amount;
+          categoryTotals[detectedCategory].taxable += taxableAmount;
+          categoryTotals[detectedCategory].tax += tax;
+
+          totalTaxable += taxableAmount;
+          totalTax += tax;
+        }
+
+        // Grocery summary
+        if (groceryTransactions.length > 0) {
+          addDebugLog(`--- GROCERY SUMMARY ---`);
+          addDebugLog(`Total grocery transactions: ${groceryTransactions.length}`);
+          const groceryTotal = groceryTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+          const groceryTaxableTotal = groceryTransactions.reduce((sum, tx) => sum + tx.taxablePortion, 0);
+          const groceryTaxTotal = groceryTransactions.reduce((sum, tx) => sum + tx.tax, 0);
+          addDebugLog(`Grocery total spend: ${formatCurrency(groceryTotal)}`);
+          addDebugLog(`Grocery taxable portion (${(GROCERY_TAXABLE_PORTION * 100).toFixed(0)}%): ${formatCurrency(groceryTaxableTotal)}`);
+          addDebugLog(`Grocery estimated tax: ${formatCurrency(groceryTaxTotal)}`);
+          if (groceryTransactions.length > 5) {
+            addDebugLog(`(Showing first 5 of ${groceryTransactions.length} grocery transactions above)`);
+          }
+          addDebugLog(`--- END GROCERY SUMMARY ---`);
+        } else {
+          addDebugLog(`No grocery transactions detected. Category detection may not be matching grocery keywords.`);
+        }
+
+        addDebugLog(`Tax calculation complete:`);
+        addDebugLog(`  - Total transactions: ${transactions.length}`);
+        addDebugLog(`  - Non-taxable items: ${nonTaxableCount} (${formatCurrency(nonTaxableAmount)})`);
+        addDebugLog(`  - Taxable transactions: ${transactions.length - nonTaxableCount}`);
+        addDebugLog(`  - Categories found: ${Object.keys(categoryTotals).join(", ")}`);
+        if (categoryTotals.fuel) {
+          addDebugLog(`  - Fuel transactions: ${formatCurrency(categoryTotals.fuel.total)} (should NOT be grocery)`);
+        }
+        addDebugLog(`  - Total spend: ${formatCurrency(totalSpend)}`);
+        addDebugLog(`  - Taxable spend: ${formatCurrency(totalTaxable)}`);
+        addDebugLog(`  - Estimated tax: ${formatCurrency(totalTax)}`);
+
+        return {
+          categoryTotals,
+          totalSpend,
+          totalTaxable,
+          totalTax,
+          transactionCount: transactions.length,
+        };
+      }
+
+      function renderResults(data) {
+        const categoryNames = {
+          retail: "Retail / Online Shopping",
+          restaurant: "Restaurants / Bars",
+          clothing: "Clothing",
+          services: "Services",
+          travel: "Hotels / Car Rentals",
+          grocery: "Groceries (taxable portion)",
+        };
+
+        el.resultsBody.innerHTML = "";
+
+        // Sort categories by tax amount (descending)
+        const sortedCategories = Object.entries(data.categoryTotals).sort(
+          (a, b) => b[1].tax - a[1].tax
+        );
+
+        for (const [category, totals] of sortedCategories) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${escapeHtml(categoryNames[category] || category)}</td>
+            <td class="number">${formatCurrency(totals.total)}</td>
+            <td class="number">${formatCurrency(totals.taxable)}</td>
+            <td class="number">${formatPercent(totals.rate)}</td>
+            <td class="number">${formatCurrency(totals.tax)}</td>
+          `;
+          el.resultsBody.appendChild(row);
+        }
+
+        el.summary.innerHTML = `
+          <div class="summary-row">
+            <span>Total transactions processed:</span>
+            <span>${data.transactionCount.toLocaleString()}</span>
+          </div>
+          <div class="summary-row">
+            <span>Total spend:</span>
+            <span>${formatCurrency(data.totalSpend)}</span>
+          </div>
+          <div class="summary-row">
+            <span>Taxable spend:</span>
+            <span>${formatCurrency(data.totalTaxable)}</span>
+          </div>
+          <div class="summary-row total">
+            <span>Estimated sales tax paid:</span>
+            <span>${formatCurrency(data.totalTax)}</span>
+          </div>
+        `;
+
+        el.resultsSection.classList.remove("hidden");
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function copyResultsToClipboard(data) {
+        const categoryNames = {
+          retail: "Retail / Online Shopping",
+          restaurant: "Restaurants / Bars",
+          clothing: "Clothing",
+          services: "Services",
+          travel: "Hotels / Car Rentals",
+          grocery: "Groceries (taxable portion)",
+        };
+
+        let text = "Sales Tax Estimate Results\n";
+        text += "=".repeat(50) + "\n\n";
+        text += `Total transactions: ${data.transactionCount.toLocaleString()}\n`;
+        text += `Total spend: ${formatCurrency(data.totalSpend)}\n`;
+        text += `Taxable spend: ${formatCurrency(data.totalTaxable)}\n`;
+        text += `Estimated sales tax paid: ${formatCurrency(data.totalTax)}\n\n`;
+        text += "Breakdown by Category:\n";
+        text += "-".repeat(50) + "\n";
+
+        const sortedCategories = Object.entries(data.categoryTotals).sort(
+          (a, b) => b[1].tax - a[1].tax
+        );
+
+        for (const [category, totals] of sortedCategories) {
+          text += `\n${categoryNames[category] || category}:\n`;
+          text += `  Total spend: ${formatCurrency(totals.total)}\n`;
+          text += `  Taxable amount: ${formatCurrency(totals.taxable)}\n`;
+          text += `  Tax rate: ${formatPercent(totals.rate)}\n`;
+          text += `  Estimated tax: ${formatCurrency(totals.tax)}\n`;
+        }
+
+        return text;
+      }
+
+      async function handleFile(file) {
+        if (!file) return;
+
+        clearDebugLog();
+        setStatus("Processing file...", null);
+        el.resultsSection.classList.add("hidden");
+        lastProcessedData = null;
+
+        addDebugLog(`File selected: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+        addDebugLog(`File type: ${file.type || "unknown"}`);
+
+        try {
+          setStatus("Reading file...", null);
+          addDebugLog("Reading file contents...");
+          const text = await file.text();
+          addDebugLog(`File read: ${text.length} characters`);
+
+          setStatus("Parsing CSV...", null);
+          addDebugLog("Parsing CSV format...");
+          const csvLines = parseCSV(text);
+          addDebugLog(`CSV parsed: ${csvLines.length} lines found`);
+
+          setStatus("Processing transactions...", null);
+          const data = processTransactions(csvLines);
+          lastProcessedData = data;
+
+          setStatus("Rendering results...", null);
+          addDebugLog("Rendering results table...");
+          renderResults(data);
+          setStatus(`Processed ${data.transactionCount.toLocaleString()} transactions.`, "ok");
+          addDebugLog("Processing complete!");
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Failed to process file.";
+          setStatus(errorMsg, "bad");
+          el.resultsSection.classList.add("hidden");
+          addDebugLog(`ERROR: ${errorMsg}`);
+          if (error instanceof Error && error.stack) {
+            addDebugLog(`Stack trace: ${error.stack}`);
+          }
+        }
+      }
+
+      // File input handler
+      el.fileInput.addEventListener("change", (e) => {
+        const file = e.target.files?.[0];
+        if (file) handleFile(file);
+      });
+
+      // Drag and drop handlers
+      el.dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        el.dropZone.classList.add("drag-over");
+      });
+
+      el.dropZone.addEventListener("dragleave", () => {
+        el.dropZone.classList.remove("drag-over");
+      });
+
+      el.dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        el.dropZone.classList.remove("drag-over");
+        const file = e.dataTransfer.files?.[0];
+        if (file && file.type === "text/csv" || file.name.endsWith(".csv")) {
+          el.fileInput.files = e.dataTransfer.files;
+          handleFile(file);
+        } else {
+          setStatus("Please drop a CSV file.", "bad");
+        }
+      });
+
+      el.dropZone.addEventListener("click", () => {
+        el.fileInput.click();
+      });
+
+      // Copy to clipboard
+      el.copyBtn.addEventListener("click", async () => {
+        try {
+          if (!lastProcessedData) {
+            setStatus("No results to copy.", "bad");
+            return;
+          }
+
+          const text = copyResultsToClipboard(lastProcessedData);
+          await navigator.clipboard.writeText(text);
+          setStatus("Results copied to clipboard!", "ok");
+        } catch (error) {
+          setStatus("Failed to copy to clipboard.", "bad");
+        }
+      });
+    </script>
+  </body>
+</html>
