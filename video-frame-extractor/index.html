@@ -792,6 +792,11 @@
         videoControlCard.classList.remove('hidden');
       });
 
+      hiddenVideo.addEventListener('error', () => {
+        alert('Error decoding video file. The codec might not be supported natively by your browser.');
+        btnReset.click();
+      });
+
       dropZone.addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) handleFile(e.target.files[0]);
