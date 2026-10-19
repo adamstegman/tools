@@ -22,6 +22,7 @@ A local-first browser tool that splits MP4, MKV, and WebM video clips into const
 4. Click **Start Extraction**.
 5. Use `←` / `→` arrow keys to navigate frames, and press `Space` to keep the ones you like.
 6. Click **Download Kept (.zip)** to save the selected images to your hard drive.
+7. Click **Start Over** in the Studio toolbar or header (or drop a new video onto the window) at any time to process another file.
 
 ## Technical Details
 
