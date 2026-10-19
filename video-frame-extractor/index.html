@@ -70,7 +70,6 @@
         font-size: 0.875rem;
       }
 
-      /* Upload / Ingestion Screen */
       .card {
         background: var(--card);
         border: 1px solid var(--border);
@@ -105,7 +104,6 @@
         margin-bottom: 0.5rem;
       }
 
-      /* Video Control & Trim Bar */
       .video-details {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -243,7 +241,6 @@
         border-color: var(--accent);
       }
 
-      /* Buttons & Actions */
       button {
         background: var(--accent);
         color: var(--accentText);
@@ -284,7 +281,6 @@
         color: white;
       }
 
-      /* Studio Layout */
       .studio-container {
         display: flex;
         flex-direction: column;
@@ -314,7 +310,6 @@
         flex-wrap: wrap;
       }
 
-      /* Main Stage (Viewport) */
       .stage-viewport {
         position: relative;
         background: var(--stage-bg);
@@ -389,7 +384,6 @@
         pointer-events: none;
       }
 
-      /* Filmstrip */
       .filmstrip-strip {
         height: 125px;
         background: var(--bg);
@@ -444,6 +438,7 @@
       }
 
       .filmstrip-badge {
+        display: none;
         position: absolute;
         top: 4px;
         left: 4px;
@@ -455,6 +450,10 @@
         border-radius: 3px;
         letter-spacing: 0.05em;
         box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+      }
+
+      .filmstrip-item.kept .filmstrip-badge {
+        display: block;
       }
 
       .filmstrip-label {
@@ -471,7 +470,6 @@
         font-family: ui-monospace, SFMono-Regular, monospace;
       }
 
-      /* Progress bar */
       .progress-bar-container {
         width: 100%;
         background: var(--border);
@@ -528,7 +526,6 @@
     </header>
 
     <main>
-      <!-- SECTION 1: INGESTION & CONFIG -->
       <section id="ingestion-section" class="card">
         <div id="drop-zone" class="upload-zone">
           <div class="upload-icon">📹</div>
@@ -601,11 +598,10 @@
             </div>
           </div>
 
-          <!-- Extraction progress -->
           <div id="extraction-status" class="hidden" style="margin-top: 1rem;">
             <div style="display: flex; justify-content: space-between; font-size: 0.85rem; align-items: center;">
               <span id="extract-count-label">Extracting frames...</span>
-              <button type="button" id="btn-pause-extract" class="danger" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
+              <button type="button" id="btn-stop-extract" class="danger" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;">
                 Stop Extraction
               </button>
             </div>
@@ -616,10 +612,8 @@
         </div>
       </section>
 
-      <!-- SECTION 2: FILMSTRIP STUDIO -->
       <section id="studio-section" class="hidden">
         <div class="studio-container">
-          <!-- Toolbar -->
           <div class="studio-toolbar">
             <div class="toolbar-left">
               <span style="font-weight: 600; font-size: 0.95rem;">Extracted Frames:</span>
@@ -639,7 +633,6 @@
             </div>
           </div>
 
-          <!-- Main Inspection Stage -->
           <div class="stage-viewport">
             <img id="main-viewport-img" class="stage-image" alt="Active Frame Preview" />
             <div class="stage-overlay">
@@ -655,10 +648,7 @@
             </div>
           </div>
 
-          <!-- Scrubbable Filmstrip -->
-          <div class="filmstrip-strip" id="filmstrip-container">
-            <!-- Filmstrip items dynamically injected here -->
-          </div>
+          <div class="filmstrip-strip" id="filmstrip-container"></div>
         </div>
       </section>
     </main>
@@ -667,31 +657,26 @@
       Video Frame Extractor &bull; Single-file client-side HTML tool &bull; Runs entirely in your browser
     </footer>
 
-    <!-- HIDDEN WORKER ELEMENTS -->
     <video id="hidden-video" style="display: none;" playsinline muted></video>
     <canvas id="hidden-canvas" style="display: none;"></canvas>
     <canvas id="thumb-canvas" style="display: none;"></canvas>
 
     <script type="module">
-      /**
-       * STATE MANAGEMENT
-       */
       const state = {
         file: null,
         videoUrl: null,
+        activeViewportUrl: null,
         duration: 0,
         width: 0,
         height: 0,
         trimInSec: 0,
         trimOutSec: 0,
-        selectedFps: 3,
+        selectedFps: '3',
         isExtracting: false,
-        isPaused: false,
-        frames: [], // Array of { id, time, formattedTime, thumbUrl, fullBlob, isKept }
+        frames: [],
         currentIndex: 0,
       };
 
-      // DOM Elements
       const dropZone = document.getElementById('drop-zone');
       const fileInput = document.getElementById('file-input');
       const videoControlCard = document.getElementById('video-control-card');
@@ -710,7 +695,7 @@
       const btnReset = document.getElementById('btn-reset');
       const extractionStatus = document.getElementById('extraction-status');
       const extractCountLabel = document.getElementById('extract-count-label');
-      const btnPauseExtract = document.getElementById('btn-pause-extract');
+      const btnStopExtract = document.getElementById('btn-stop-extract');
       const extractProgressFill = document.getElementById('extract-progress-fill');
 
       const studioSection = document.getElementById('studio-section');
@@ -729,9 +714,6 @@
       const hiddenCanvas = document.getElementById('hidden-canvas');
       const thumbCanvas = document.getElementById('thumb-canvas');
 
-      /**
-       * HELPERS
-       */
       function formatTime(seconds) {
         if (isNaN(seconds) || seconds < 0) seconds = 0;
         const mins = Math.floor(seconds / 60);
@@ -745,9 +727,13 @@
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
       }
 
+      function getEffectiveFps() {
+        return state.selectedFps === 'all' ? 30 : Number(state.selectedFps);
+      }
+
       function updateEstimatedFrames() {
         const rangeDuration = Math.max(0, state.trimOutSec - state.trimInSec);
-        const fps = state.selectedFps === 'all' ? 30 : Number(state.selectedFps);
+        const fps = getEffectiveFps();
         const count = Math.max(1, Math.floor(rangeDuration * fps));
         estimateLabel.textContent = `Estimated frames: ~${count}`;
       }
@@ -765,9 +751,6 @@
         updateEstimatedFrames();
       }
 
-      /**
-       * VIDEO INGESTION
-       */
       function handleFile(file) {
         if (!file || !file.type.startsWith('video/')) {
           alert('Please select a valid video file (e.g. MP4).');
@@ -809,7 +792,6 @@
         videoControlCard.classList.remove('hidden');
       });
 
-      // Drag and drop
       dropZone.addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) handleFile(e.target.files[0]);
@@ -827,6 +809,19 @@
 
       btnReset.addEventListener('click', () => {
         if (state.isExtracting) state.isExtracting = false;
+        if (state.videoUrl) {
+          URL.revokeObjectURL(state.videoUrl);
+          state.videoUrl = null;
+        }
+        if (state.activeViewportUrl) {
+          URL.revokeObjectURL(state.activeViewportUrl);
+          state.activeViewportUrl = null;
+        }
+        hiddenVideo.removeAttribute('src');
+        hiddenVideo.load();
+        mainViewportImg.removeAttribute('src');
+        fileInput.value = '';
+        extractionStatus.classList.add('hidden');
         dropZone.classList.remove('hidden');
         videoControlCard.classList.add('hidden');
         studioSection.classList.add('hidden');
@@ -834,9 +829,8 @@
         state.frames = [];
       });
 
-      // Trim range sliders
       trimIn.addEventListener('input', () => {
-        let val = parseFloat(trimIn.value);
+        let val = trimIn.valueAsNumber;
         if (val >= state.trimOutSec) val = Math.max(0, state.trimOutSec - 0.2);
         trimIn.value = val;
         state.trimInSec = val;
@@ -844,14 +838,13 @@
       });
 
       trimOut.addEventListener('input', () => {
-        let val = parseFloat(trimOut.value);
+        let val = trimOut.valueAsNumber;
         if (val <= state.trimInSec) val = Math.min(state.duration, state.trimInSec + 0.2);
         trimOut.value = val;
         state.trimOutSec = val;
         updateTrimVisuals();
       });
 
-      // FPS buttons
       document.querySelectorAll('.fps-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           document.querySelectorAll('.fps-btn').forEach((b) => b.classList.remove('active'));
@@ -861,16 +854,9 @@
         });
       });
 
-      /**
-       * EXTRACTION ENGINE (Progressive Streaming)
-       */
       async function seekVideo(time) {
         return new Promise((resolve) => {
-          const onSeeked = () => {
-            hiddenVideo.removeEventListener('seeked', onSeeked);
-            resolve();
-          };
-          hiddenVideo.addEventListener('seeked', onSeeked);
+          hiddenVideo.addEventListener('seeked', resolve, { once: true });
           hiddenVideo.currentTime = Math.min(time, state.duration);
         });
       }
@@ -884,10 +870,11 @@
         extractionStatus.classList.remove('hidden');
         studioSection.classList.remove('hidden');
         btnStartExtract.disabled = true;
+        btnStopExtract.classList.remove('hidden');
 
         const startT = state.trimInSec;
         const endT = state.trimOutSec;
-        const fps = state.selectedFps === 'all' ? 30 : Number(state.selectedFps);
+        const fps = getEffectiveFps();
         const interval = 1 / fps;
 
         const timestamps = [];
@@ -901,7 +888,7 @@
         const totalToExtract = timestamps.length;
         hiddenCanvas.width = state.width;
         hiddenCanvas.height = state.height;
-        const hCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+        const hCtx = hiddenCanvas.getContext('2d');
 
         const thumbWidth = 160;
         const aspect = state.width / state.height;
@@ -915,13 +902,10 @@
           const t = timestamps[i];
           await seekVideo(t);
 
-          // Draw full res
           hCtx.drawImage(hiddenVideo, 0, 0, state.width, state.height);
-          // Draw thumbnail
           tCtx.drawImage(hiddenCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
           const thumbUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
 
-          // Create full-res blob asynchronously
           const fullBlob = await new Promise((res) => hiddenCanvas.toBlob(res, 'image/jpeg', 0.95));
 
           const frame = {
@@ -936,73 +920,79 @@
           state.frames.push(frame);
           appendFilmstripItem(frame, i);
 
-          // If this is the first frame, display immediately in viewport
           if (i === 0) {
             setActiveFrame(0);
           }
 
-          // Update progress
           const progress = Math.round(((i + 1) / totalToExtract) * 100);
           extractProgressFill.style.width = `${progress}%`;
           extractCountLabel.textContent = `Extracting: ${i + 1} / ${totalToExtract} frames (${progress}%)`;
-          totalExtractedCounter.textContent = `(${state.frames.length} total)`;
+          updateCounters();
         }
 
         state.isExtracting = false;
         btnStartExtract.disabled = false;
         extractCountLabel.textContent = `Complete: ${state.frames.length} frames extracted.`;
-        btnPauseExtract.classList.add('hidden');
+        btnStopExtract.classList.add('hidden');
       });
 
-      btnPauseExtract.addEventListener('click', () => {
+      btnStopExtract.addEventListener('click', () => {
         state.isExtracting = false;
         extractCountLabel.textContent = `Stopped early with ${state.frames.length} frames ready.`;
-        btnPauseExtract.classList.add('hidden');
+        btnStopExtract.classList.add('hidden');
         btnStartExtract.disabled = false;
       });
 
-      /**
-       * FILMSTRIP STUDIO UI & INTERACTIONS
-       */
       function appendFilmstripItem(frame, index) {
         const item = document.createElement('div');
         item.className = 'filmstrip-item' + (index === state.currentIndex ? ' current' : '');
         item.dataset.index = index;
         item.innerHTML = `
-          ${frame.isKept ? '<div class="filmstrip-badge">KEEP</div>' : ''}
+          <div class="filmstrip-badge">KEEP</div>
           <img src="${frame.thumbUrl}" alt="Frame #${frame.id}" loading="lazy" />
           <div class="filmstrip-label">
             <span>#${frame.id}</span>
             <span>${frame.formattedTime}</span>
           </div>
         `;
-        item.addEventListener('click', () => {
-          setActiveFrame(index);
-        });
         filmstripContainer.appendChild(item);
       }
 
+      filmstripContainer.addEventListener('click', (e) => {
+        const item = e.target.closest('.filmstrip-item');
+        if (item && item.dataset.index !== undefined) {
+          setActiveFrame(Number(item.dataset.index));
+        }
+      });
+
       function setActiveFrame(index) {
         if (!state.frames[index]) return;
+        if (index === state.currentIndex && mainViewportImg.src && !mainViewportImg.src.endsWith('#empty')) {
+          // Update item highlight only if missing
+          const item = filmstripContainer.children[index];
+          if (item && !item.classList.contains('current')) item.classList.add('current');
+          return;
+        }
+
+        const prevItem = filmstripContainer.children[state.currentIndex];
+        if (prevItem) prevItem.classList.remove('current');
+
         state.currentIndex = index;
         const frame = state.frames[index];
 
-        // Update main stage image
-        mainViewportImg.src = URL.createObjectURL(frame.fullBlob);
+        if (state.activeViewportUrl) {
+          URL.revokeObjectURL(state.activeViewportUrl);
+        }
+        state.activeViewportUrl = URL.createObjectURL(frame.fullBlob);
+        mainViewportImg.src = state.activeViewportUrl;
         activeFrameMeta.textContent = `Frame #${frame.id.toString().padStart(3, '0')} — ${frame.formattedTime}`;
 
-        // Update Keep button state
         updateKeepButton(frame.isKept);
 
-        // Update filmstrip highlight
-        document.querySelectorAll('.filmstrip-item').forEach((el, i) => {
-          el.classList.toggle('current', i === index);
-        });
-
-        // Scroll active item into view
-        const activeItem = filmstripContainer.children[index];
-        if (activeItem) {
-          activeItem.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        const nextItem = filmstripContainer.children[index];
+        if (nextItem) {
+          nextItem.classList.add('current');
+          nextItem.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         }
       }
 
@@ -1023,19 +1013,9 @@
         frame.isKept = !frame.isKept;
         updateKeepButton(frame.isKept);
 
-        // Update item in strip
         const item = filmstripContainer.children[state.currentIndex];
         if (item) {
           item.classList.toggle('kept', frame.isKept);
-          let badge = item.querySelector('.filmstrip-badge');
-          if (frame.isKept && !badge) {
-            badge = document.createElement('div');
-            badge.className = 'filmstrip-badge';
-            badge.textContent = 'KEEP';
-            item.appendChild(badge);
-          } else if (!frame.isKept && badge) {
-            badge.remove();
-          }
         }
 
         updateCounters();
@@ -1051,29 +1031,20 @@
         btnDownloadZip.disabled = keptCount === 0;
       }
 
-      // Batch selection
       btnSelectAll.addEventListener('click', () => {
         state.frames.forEach((f) => (f.isKept = true));
-        document.querySelectorAll('.filmstrip-item').forEach((item) => {
+        for (const item of filmstripContainer.children) {
           item.classList.add('kept');
-          if (!item.querySelector('.filmstrip-badge')) {
-            const b = document.createElement('div');
-            b.className = 'filmstrip-badge';
-            b.textContent = 'KEEP';
-            item.appendChild(b);
-          }
-        });
+        }
         if (state.frames[state.currentIndex]) updateKeepButton(true);
         updateCounters();
       });
 
       btnDeselectAll.addEventListener('click', () => {
         state.frames.forEach((f) => (f.isKept = false));
-        document.querySelectorAll('.filmstrip-item').forEach((item) => {
+        for (const item of filmstripContainer.children) {
           item.classList.remove('kept');
-          const b = item.querySelector('.filmstrip-badge');
-          if (b) b.remove();
-        });
+        }
         if (state.frames[state.currentIndex]) updateKeepButton(false);
         updateCounters();
       });
@@ -1082,26 +1053,13 @@
         state.frames.forEach((f, i) => {
           f.isKept = !f.isKept;
           const item = filmstripContainer.children[i];
-          if (item) {
-            item.classList.toggle('kept', f.isKept);
-            let b = item.querySelector('.filmstrip-badge');
-            if (f.isKept && !b) {
-              b = document.createElement('div');
-              b.className = 'filmstrip-badge';
-              b.textContent = 'KEEP';
-              item.appendChild(b);
-            } else if (!f.isKept && b) {
-              b.remove();
-            }
-          }
+          if (item) item.classList.toggle('kept', f.isKept);
         });
         if (state.frames[state.currentIndex]) updateKeepButton(state.frames[state.currentIndex].isKept);
         updateCounters();
       });
 
-      // Keyboard navigation
       window.addEventListener('keydown', (e) => {
-        // Only handle when studio is visible
         if (studioSection.classList.contains('hidden') || state.frames.length === 0) return;
         if (e.target.tagName === 'INPUT') return;
 
@@ -1122,9 +1080,8 @@
       });
 
       /**
-       * ZERO-DEPENDENCY PKZIP BUILDER
+       * PKZIP BUILDER (Binary Stream Packaging)
        */
-      // Standard CRC-32 table generator
       const crc32Table = new Uint32Array(256);
       for (let i = 0; i < 256; i++) {
         let c = i;
@@ -1142,60 +1099,58 @@
         return (crc ^ 0xffffffff) >>> 0;
       }
 
-      async function createZipArchive(files) {
-        // files = Array of { name: string, data: Uint8Array }
+      function createZipArchive(files) {
+        // files = Array of { name: string, size: number, crc: number, blob: Blob }
         const encoder = new TextEncoder();
         const localHeaders = [];
         const centralHeaders = [];
         let offset = 0;
 
         const now = new Date();
-        const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (Math.floor(now.getSeconds() / 2));
+        const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
         const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
 
         for (const file of files) {
           const nameBytes = encoder.encode(file.name);
-          const size = file.data.byteLength;
-          const crc = computeCrc32(file.data);
+          const size = file.size;
+          const crc = file.crc;
 
-          // Local file header (30 bytes + name length)
           const lfh = new Uint8Array(30 + nameBytes.length);
           const lfhView = new DataView(lfh.buffer);
-          lfhView.setUint32(0, 0x04034b50, true); // signature
-          lfhView.setUint16(4, 20, true); // version needed
-          lfhView.setUint16(6, 0x0800, true); // general flag (UTF-8)
-          lfhView.setUint16(8, 0, true); // compression = Store (0)
+          lfhView.setUint32(0, 0x04034b50, true);
+          lfhView.setUint16(4, 20, true);
+          lfhView.setUint16(6, 0x0800, true); // UTF-8 filename flag
+          lfhView.setUint16(8, 0, true); // Store (uncompressed)
           lfhView.setUint16(10, dosTime, true);
           lfhView.setUint16(12, dosDate, true);
           lfhView.setUint32(14, crc, true);
-          lfhView.setUint32(18, size, true); // compressed size
-          lfhView.setUint32(22, size, true); // uncompressed size
+          lfhView.setUint32(18, size, true);
+          lfhView.setUint32(22, size, true);
           lfhView.setUint16(26, nameBytes.length, true);
-          lfhView.setUint16(28, 0, true); // extra field length
+          lfhView.setUint16(28, 0, true);
           lfh.set(nameBytes, 30);
 
-          localHeaders.push({ lfh, data: file.data });
+          localHeaders.push({ lfh, blob: file.blob });
 
-          // Central directory header (46 bytes + name length)
           const cdh = new Uint8Array(46 + nameBytes.length);
           const cdhView = new DataView(cdh.buffer);
-          cdhView.setUint32(0, 0x02014b50, true); // signature
-          cdhView.setUint16(4, 20, true); // version made by
-          cdhView.setUint16(6, 20, true); // version needed
-          cdhView.setUint16(8, 0x0800, true); // general flag (UTF-8)
-          cdhView.setUint16(10, 0, true); // compression = Store (0)
+          cdhView.setUint32(0, 0x02014b50, true);
+          cdhView.setUint16(4, 20, true);
+          cdhView.setUint16(6, 20, true);
+          cdhView.setUint16(8, 0x0800, true);
+          cdhView.setUint16(10, 0, true);
           cdhView.setUint16(12, dosTime, true);
           cdhView.setUint16(14, dosDate, true);
           cdhView.setUint32(16, crc, true);
           cdhView.setUint32(20, size, true);
           cdhView.setUint32(24, size, true);
           cdhView.setUint16(28, nameBytes.length, true);
-          cdhView.setUint16(30, 0, true); // extra length
-          cdhView.setUint16(32, 0, true); // comment length
-          cdhView.setUint16(34, 0, true); // disk start
-          cdhView.setUint16(36, 0, true); // internal attrs
-          cdhView.setUint32(38, 0, true); // external attrs
-          cdhView.setUint32(42, offset, true); // relative offset of local header
+          cdhView.setUint16(30, 0, true);
+          cdhView.setUint16(32, 0, true);
+          cdhView.setUint16(34, 0, true);
+          cdhView.setUint16(36, 0, true);
+          cdhView.setUint32(38, 0, true);
+          cdhView.setUint32(42, offset, true);
           cdh.set(nameBytes, 46);
 
           centralHeaders.push(cdh);
@@ -1206,23 +1161,21 @@
         let cdSize = 0;
         for (const cdh of centralHeaders) cdSize += cdh.length;
 
-        // End of central directory record (22 bytes)
         const eocd = new Uint8Array(22);
         const eocdView = new DataView(eocd.buffer);
         eocdView.setUint32(0, 0x06054b50, true);
-        eocdView.setUint16(4, 0, true); // disk number
-        eocdView.setUint16(6, 0, true); // disk with CD start
-        eocdView.setUint16(8, files.length, true); // total entries on disk
-        eocdView.setUint16(10, files.length, true); // total entries
-        eocdView.setUint32(12, cdSize, true); // size of CD
-        eocdView.setUint32(16, cdOffset, true); // offset of start of CD
-        eocdView.setUint16(20, 0, true); // comment length
+        eocdView.setUint16(4, 0, true);
+        eocdView.setUint16(6, 0, true);
+        eocdView.setUint16(8, files.length, true);
+        eocdView.setUint16(10, files.length, true);
+        eocdView.setUint32(12, cdSize, true);
+        eocdView.setUint32(16, cdOffset, true);
+        eocdView.setUint16(20, 0, true);
 
-        // Combine into single Blob
         const parts = [];
         for (const item of localHeaders) {
           parts.push(item.lfh);
-          parts.push(item.data);
+          parts.push(item.blob);
         }
         for (const cdh of centralHeaders) {
           parts.push(cdh);
@@ -1243,19 +1196,22 @@
           .toLowerCase()
           .replace(/[^a-z0-9_-]/g, '_');
 
-        const zipFiles = [];
-        for (let i = 0; i < keptFrames.length; i++) {
-          const frame = keptFrames[i];
-          const arrayBuffer = await frame.fullBlob.arrayBuffer();
-          const cleanTime = frame.formattedTime.replace(':', 'm').replace('.', 's') + 'ms';
-          const fileName = `${baseName}-frame-${(i + 1).toString().padStart(3, '0')}-${cleanTime}.jpg`;
-          zipFiles.push({
-            name: fileName,
-            data: new Uint8Array(arrayBuffer),
-          });
-        }
+        const zipFiles = await Promise.all(
+          keptFrames.map(async (frame, i) => {
+            const arrayBuffer = await frame.fullBlob.arrayBuffer();
+            const crc = computeCrc32(new Uint8Array(arrayBuffer));
+            const cleanTime = frame.formattedTime.replace(':', 'm').replace('.', 's') + 'ms';
+            const fileName = `${baseName}-frame-${(i + 1).toString().padStart(3, '0')}-${cleanTime}.jpg`;
+            return {
+              name: fileName,
+              size: frame.fullBlob.size,
+              crc,
+              blob: frame.fullBlob,
+            };
+          })
+        );
 
-        const zipBlob = await createZipArchive(zipFiles);
+        const zipBlob = createZipArchive(zipFiles);
         const downloadUrl = URL.createObjectURL(zipBlob);
 
         const a = document.createElement('a');
@@ -1263,7 +1219,7 @@
         a.download = `${baseName}-frames.zip`;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
+        a.remove();
 
         setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
         updateCounters();
